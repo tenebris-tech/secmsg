@@ -10,6 +10,7 @@ const (
 
 // TypingParams is the params payload for a "typing" notification.
 type TypingParams struct {
+	Service string `json:"service"`
 	Account string `json:"account"`
 	From    Party  `json:"from"`
 	To      Party  `json:"to"`
