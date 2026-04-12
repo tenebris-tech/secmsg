@@ -1,6 +1,8 @@
 package client
 
 import (
+	"encoding/json"
+
 	"github.com/tenebris-tech/secmsg/schema"
 )
 
@@ -121,4 +123,32 @@ func (c *Client) SendTyping(service, account, to string, typing bool) error {
 		Typing:  typing,
 	}
 	return c.call("typing", params, nil)
+}
+
+// statusParams is the wire payload for the status request.
+type statusParams struct {
+	Account string `json:"account,omitempty"`
+}
+
+// Status returns the linked/connected state for one or all accounts.
+// account may be empty to request all accounts.
+// The returned bytes are the raw JSON result from sigd.
+func (c *Client) Status(account string) (json.RawMessage, error) {
+	params := statusParams{Account: account}
+	var raw json.RawMessage
+	if err := c.call("status", params, &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+// unlinkParams is the wire payload for the unlink request.
+type unlinkParams struct {
+	Account string `json:"account"`
+}
+
+// Unlink removes the named account from sigd, returning it to an unlinked state.
+func (c *Client) Unlink(account string) error {
+	params := unlinkParams{Account: account}
+	return c.call("unlink", params, nil)
 }

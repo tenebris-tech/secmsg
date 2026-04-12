@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", "localhost:7777", "sigd address")
+	addr := flag.String("addr", "127.0.0.1:9801", "sigd address")
 	asJSON := flag.Bool("json", false, "output as JSON")
 	flag.Usage = usage
 	flag.Parse()
@@ -154,6 +154,26 @@ func main() {
 			fatalf("poll-link: %v", err)
 		}
 
+	case "status":
+		// status [account] — optional account name
+		account := ""
+		if len(rest) > 0 {
+			account = rest[0]
+		}
+		result, err := c.Status(account)
+		if err != nil {
+			fatalf("status: %v", err)
+		}
+		printJSON(result)
+
+	case "unlink":
+		if len(rest) < 1 {
+			fatalf("usage: unlink <account>")
+		}
+		if err := c.Unlink(rest[0]); err != nil {
+			fatalf("unlink: %v", err)
+		}
+
 	case "listen":
 		// listen — subscribe to notifications and print them.
 		ch, cancel := c.Subscribe()
@@ -239,7 +259,7 @@ Usage:
   secmsg [flags] <command> [args...]
 
 Flags:
-  -addr string   sigd address (default "localhost:7777")
+  -addr string   sigd address (default "127.0.0.1:9801")
   -json          output as JSON
 
 Commands:
@@ -252,6 +272,8 @@ Commands:
   link          <account> <name>
   link-status   <account>
   poll-link     <account>
+  status        [account]
+  unlink        <account>
   listen
   help
 `)
