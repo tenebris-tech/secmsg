@@ -164,7 +164,11 @@ func main() {
 		if err != nil {
 			fatalf("status: %v", err)
 		}
-		printJSON(result)
+		if *asJSON {
+			printJSON(result)
+		} else {
+			printStatus(result, account)
+		}
 
 	case "unlink":
 		if len(rest) < 1 {
@@ -188,6 +192,42 @@ func main() {
 
 	default:
 		fatalf("unknown command %q (use -help for usage)", cmd)
+	}
+}
+
+// printStatus renders a human-readable status summary from the raw JSON
+// returned by the status RPC. When account is empty the response is a
+// StatusAllReply; otherwise it is a StatusReply.
+func printStatus(raw json.RawMessage, account string) {
+	if account != "" {
+		var s schema.StatusReply
+		if err := json.Unmarshal(raw, &s); err != nil {
+			fatalf("status: unmarshal: %v", err)
+		}
+		fmt.Printf("account: %s  linked: %v  connected: %v", s.Account, s.Linked, s.Connected)
+		if s.ACI != "" {
+			fmt.Printf("  aci: %s", s.ACI)
+		}
+		if s.Phone != "" {
+			fmt.Printf("  phone: %s", s.Phone)
+		}
+		fmt.Println()
+		return
+	}
+
+	var all schema.StatusAllReply
+	if err := json.Unmarshal(raw, &all); err != nil {
+		fatalf("status: unmarshal: %v", err)
+	}
+	for _, s := range all.Accounts {
+		fmt.Printf("account: %s  linked: %v  connected: %v", s.Account, s.Linked, s.Connected)
+		if s.ACI != "" {
+			fmt.Printf("  aci: %s", s.ACI)
+		}
+		if s.Phone != "" {
+			fmt.Printf("  phone: %s", s.Phone)
+		}
+		fmt.Println()
 	}
 }
 

@@ -16,12 +16,12 @@ const (
 // For outbound sync messages (copies of messages we sent) From is our account and To is the remote party.
 // Ref is the target message timestamp for edit and delete types.
 type MessageParams struct {
-	Service     string `json:"service"`
-	Account     string `json:"account"`
-	From        Party  `json:"from"`
-	To          Party  `json:"to"`
-	Type        string `json:"type"`
-	Timestamp   uint64 `json:"timestamp"`
+	Service     string       `json:"service"`
+	Account     string       `json:"account"`
+	From        Party        `json:"from"`
+	To          Party        `json:"to"`
+	Type        string       `json:"type"`
+	Timestamp   uint64       `json:"timestamp"`
 	Ref         uint64       `json:"ref,omitempty"`
 	Body        string       `json:"body,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
