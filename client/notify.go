@@ -16,17 +16,12 @@ type subscription struct {
 	once sync.Once
 }
 
-// close signals the subscription is done and then drains + closes ch so
-// readers always get a clean EOF.
+// close signals the subscription is done and closes ch so readers see EOF.
+// dispatchNotification guards all sends with the done channel, so no send can
+// race with close(ch) after close(done) is observed.
 func (s *subscription) close() {
 	s.once.Do(func() {
 		close(s.done)
-		// Drain any buffered items so a blocked producer can unblock, then
-		// close the channel so the consumer sees EOF.
-		go func() {
-			for range s.ch {
-			}
-		}()
 		close(s.ch)
 	})
 }
