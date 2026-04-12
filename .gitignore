@@ -1,0 +1,21 @@
+# Binaries and build artifacts
+bin/
+build/
+private/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Secrets & Config (keep templates, ignore actual secrets)
+.env
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
