@@ -1,7 +1,7 @@
 package client
 
 import (
-	"github.com/securityguy/secmsg/schema"
+	"github.com/tenebris-tech/secmsg/schema"
 )
 
 // sendMessageParams is the wire payload for sending a 1:1 message.

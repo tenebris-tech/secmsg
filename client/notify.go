@@ -3,7 +3,7 @@ package client
 import (
 	"sync"
 
-	"github.com/securityguy/secmsg/schema"
+	"github.com/tenebris-tech/secmsg/schema"
 )
 
 // subscription tracks a single subscriber channel together with its

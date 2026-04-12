@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/securityguy/secmsg/client"
-	"github.com/securityguy/secmsg/schema"
+	"github.com/tenebris-tech/secmsg/client"
+	"github.com/tenebris-tech/secmsg/schema"
 )
 
 func main() {
