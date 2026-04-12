@@ -1,5 +1,4 @@
-// Package client provides a typed Go client for the sigd JSON-RPC 2.0 API.
-// It handles connecting to the daemon and provides one method per RPC call.
+// Package client implements a JSON-RPC client for communicating with sigd.
 package client
 
 import (
@@ -7,33 +6,34 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 )
 
-// Client is a connection to a sigd daemon.
-// It is safe for concurrent use after construction.
+// Client holds an active connection to sigd and manages request/response
+// multiplexing and notification dispatch.
 type Client struct {
-	conn   net.Conn
-	reader *bufio.Reader
+	conn    net.Conn
+	scanner *bufio.Scanner
 
-	// mu guards writes to conn and the pending map.
+	// mu protects pending and nextID only — never held across I/O.
 	mu      sync.Mutex
-	pending map[uint64]*call
+	pending map[uint64]chan *rpcResponse
+	nextID  uint64
 
-	// nextID is an atomic counter for generating unique request IDs.
-	nextID atomic.Uint64
+	// writeMu serialises concurrent writes to conn without blocking reads or
+	// request-tracking operations.
+	writeMu sync.Mutex
 
-	// closeCh is closed when Close is called.
-	closeCh   chan struct{}
+	// subs is guarded by subsMu.
+	subsMu sync.RWMutex
+	subs   []*subscription
+
 	closeOnce sync.Once
-
-	// subMu guards the subscribers slice.
-	subMu       sync.RWMutex
-	subscribers []*subscriber
+	done      chan struct{}
+	wg        sync.WaitGroup
 }
 
-// Dial connects to the sigd daemon at addr and returns a ready-to-use Client.
-// The caller is responsible for calling Close when done.
+// Dial connects to sigd at addr (e.g. "localhost:7777") and performs the
+// hello handshake.  The returned *Client is ready for use.
 func Dial(addr string) (*Client, error) {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -42,31 +42,47 @@ func Dial(addr string) (*Client, error) {
 
 	c := &Client{
 		conn:    conn,
-		reader:  bufio.NewReader(conn),
-		pending: make(map[uint64]*call),
-		closeCh: make(chan struct{}),
+		scanner: bufio.NewScanner(conn),
+		pending: make(map[uint64]chan *rpcResponse),
+		done:    make(chan struct{}),
 	}
 
-	// Start the read loop that dispatches responses and notifications.
+	if err := c.hello(); err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	c.wg.Add(1)
 	go c.readLoop()
 
 	return c, nil
 }
 
-// Close closes the connection to the daemon.
+// Close shuts down the client, draining all pending requests and subscriptions.
 func (c *Client) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
-		close(c.closeCh)
+		close(c.done)
 		err = c.conn.Close()
 
-		// Fail all pending calls.
+		// Wake any goroutine blocked in readLoop.
+		c.wg.Wait()
+
+		// Drain pending RPCs.
 		c.mu.Lock()
-		for _, call := range c.pending {
-			call.respond(nil, fmt.Errorf("connection closed"))
+		for id, ch := range c.pending {
+			close(ch)
+			delete(c.pending, id)
 		}
-		c.pending = make(map[uint64]*call)
 		c.mu.Unlock()
+
+		// Close all subscription channels.
+		c.subsMu.Lock()
+		for _, s := range c.subs {
+			s.close()
+		}
+		c.subs = nil
+		c.subsMu.Unlock()
 	})
 	return err
 }

@@ -1,5 +1,4 @@
-// Command secmsg is a CLI client for the sigd Signal daemon.
-// It connects to sigd over TCP and exposes all RPC methods as subcommands.
+// Command secmsg is a CLI client for sigd, the signal daemon.
 package main
 
 import (
@@ -8,20 +7,15 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/securityguy/secmsg/client"
 	"github.com/securityguy/secmsg/schema"
 )
 
-const (
-	defaultAddr    = "127.0.0.1:9905"
-	defaultTimeout = 30
-)
-
 func main() {
-	// Global flags.
-	addr := flag.String("addr", defaultAddr, "sigd TCP address (host:port)")
-	jsonOutput := flag.Bool("json", false, "output results as JSON")
+	addr := flag.String("addr", "localhost:7777", "sigd address")
+	asJSON := flag.Bool("json", false, "output as JSON")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -32,308 +26,233 @@ func main() {
 	}
 
 	cmd := args[0]
-	cmdArgs := args[1:]
+	rest := args[1:]
+
+	// Commands that don't need a persistent connection.
+	switch cmd {
+	case "help":
+		usage()
+		return
+	}
+
+	c, err := client.Dial(*addr)
+	if err != nil {
+		fatalf("connect: %v", err)
+	}
+	defer c.Close()
 
 	switch cmd {
-	case "link":
-		runLink(*addr, *jsonOutput, cmdArgs)
-	case "status":
-		runStatus(*addr, *jsonOutput, cmdArgs)
 	case "send":
-		runSend(*addr, *jsonOutput, cmdArgs)
-	case "receive":
-		runReceive(*addr, *jsonOutput, cmdArgs)
-	case "subscribe":
-		runSubscribe(*addr, *jsonOutput, cmdArgs)
+		if len(rest) < 3 {
+			fatalf("usage: send <account> <to> <message>")
+		}
+		if err := c.SendMessage(schema.ServiceSignal, rest[0], rest[1], rest[2]); err != nil {
+			fatalf("send: %v", err)
+		}
+
+	case "send-group":
+		if len(rest) < 3 {
+			fatalf("usage: send-group <account> <groupId> <message>")
+		}
+		if err := c.SendGroupMessage(schema.ServiceSignal, rest[0], rest[1], rest[2]); err != nil {
+			fatalf("send-group: %v", err)
+		}
+
+	case "contacts":
+		if len(rest) < 1 {
+			fatalf("usage: contacts <account>")
+		}
+		contacts, err := c.Contacts(schema.ServiceSignal, rest[0])
+		if err != nil {
+			fatalf("contacts: %v", err)
+		}
+		printResult(*asJSON, contacts)
+
+	case "groups":
+		if len(rest) < 1 {
+			fatalf("usage: groups <account>")
+		}
+		groups, err := c.Groups(schema.ServiceSignal, rest[0])
+		if err != nil {
+			fatalf("groups: %v", err)
+		}
+		printResult(*asJSON, groups)
+
+	case "receipt-read":
+		// receipt-read <account> <to> <timestamp> [<timestamp>...]
+		if len(rest) < 3 {
+			fatalf("usage: receipt-read <account> <to> <timestamp> [<timestamp>...]")
+		}
+		account := rest[0]
+		to := rest[1]
+		timestamps, err := parseTimestamps(rest[2:])
+		if err != nil {
+			fatalf("receipt-read: %v", err)
+		}
+		if err := c.SendReceiptRead(schema.ServiceSignal, account, to, timestamps); err != nil {
+			fatalf("receipt-read: %v", err)
+		}
+
+	case "typing":
+		if len(rest) < 3 {
+			fatalf("usage: typing <account> <to> <true|false>")
+		}
+		typing, err := strconv.ParseBool(rest[2])
+		if err != nil {
+			fatalf("typing: invalid bool %q: %v", rest[2], err)
+		}
+		if err := c.SendTyping(schema.ServiceSignal, rest[0], rest[1], typing); err != nil {
+			fatalf("typing: %v", err)
+		}
+
+	case "link":
+		if len(rest) < 2 {
+			fatalf("usage: link <account> <name>")
+		}
+		reply, err := c.LinkRequest(rest[0], rest[1])
+		if err != nil {
+			fatalf("link: %v", err)
+		}
+		if *asJSON {
+			printJSON(reply)
+		} else {
+			fmt.Printf("status: %s\n", reply.Status)
+			if reply.URI != "" {
+				fmt.Printf("uri: %s\n", reply.URI)
+			}
+		}
+
+	case "link-status":
+		if len(rest) < 1 {
+			fatalf("usage: link-status <account>")
+		}
+		reply, err := c.LinkStatus(rest[0])
+		if err != nil {
+			fatalf("link-status: %v", err)
+		}
+		if *asJSON {
+			printJSON(reply)
+		} else {
+			fmt.Printf("status: %s\n", reply.Status)
+			if reply.ACI != "" {
+				fmt.Printf("aci: %s\n", reply.ACI)
+			}
+			if reply.Phone != "" {
+				fmt.Printf("phone: %s\n", reply.Phone)
+			}
+			if reply.Error != "" {
+				fmt.Printf("error: %s\n", reply.Error)
+			}
+		}
+
+	case "poll-link":
+		// poll-link <account> — polls link.status until complete or error.
+		if len(rest) < 1 {
+			fatalf("usage: poll-link <account>")
+		}
+		if err := pollLinkStatus(c, rest[0], *asJSON); err != nil {
+			fatalf("poll-link: %v", err)
+		}
+
+	case "listen":
+		// listen — subscribe to notifications and print them.
+		ch, cancel := c.Subscribe()
+		defer cancel()
+		for env := range ch {
+			if *asJSON {
+				printJSON(env)
+			} else {
+				fmt.Printf("method=%s params=%s\n", env.Method, env.Params)
+			}
+		}
+
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
-		usage()
-		os.Exit(1)
+		fatalf("unknown command %q (use -help for usage)", cmd)
 	}
 }
 
-func usage() {
-	fmt.Fprintf(os.Stderr, `Usage: secmsg [flags] <command> [args]
-
-Flags:
-  --addr string   sigd TCP address (default %q)
-  -json           output results as JSON
-
-Commands:
-  link <name> <account>         link to Signal (displays QR URI)
-  status [account]              show link/connection status
-  send <account> <to> <body>    send a 1:1 message
-  receive [timeout]             poll once for pending messages (default %ds)
-  subscribe                     stream push notifications to stdout
-`, defaultAddr, defaultTimeout)
-}
-
-// dial connects to sigd or exits with an error.
-func dial(addr string) *client.Client {
-	c, err := client.Dial(addr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: cannot connect to sigd at %s: %v\n", addr, err)
-		os.Exit(1)
+// pollLinkStatus polls link.status once per second until the link is complete
+// or has errored.
+func pollLinkStatus(c *client.Client, account string, asJSON bool) error {
+	for {
+		reply, err := c.LinkStatus(account)
+		if err != nil {
+			return err
+		}
+		if asJSON {
+			printJSON(reply)
+		} else {
+			fmt.Printf("status: %s", reply.Status)
+			if reply.URI != "" {
+				fmt.Printf("  uri: %s", reply.URI)
+			}
+			fmt.Println()
+		}
+		switch reply.Status {
+		case schema.LinkStatusComplete, schema.LinkStatusError:
+			return nil
+		}
+		time.Sleep(time.Second)
 	}
-	return c
 }
 
-// printJSON marshals v to JSON and writes it to stdout.
+// parseTimestamps converts a slice of decimal strings to uint64 values.
+func parseTimestamps(ss []string) ([]uint64, error) {
+	out := make([]uint64, 0, len(ss))
+	for _, s := range ss {
+		v, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid timestamp %q: %w", s, err)
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+// printResult prints val as JSON when requested, otherwise uses %+v.
+func printResult(asJSON bool, val any) {
+	if asJSON {
+		printJSON(val)
+		return
+	}
+	fmt.Printf("%+v\n", val)
+}
+
+// printJSON marshals v to indented JSON and writes it to stdout.
 func printJSON(v any) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(v); err != nil {
-		fmt.Fprintf(os.Stderr, "error: encode JSON: %v\n", err)
-		os.Exit(1)
+		fatalf("json encode: %v", err)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// link
-// ---------------------------------------------------------------------------
-
-// runLink starts device linking and prints the QR URI.
-// Usage: link <name> <account>
-func runLink(addr string, jsonOut bool, args []string) {
-	if len(args) != 2 {
-		fmt.Fprintf(os.Stderr, "usage: secmsg link <name> <account>\n")
-		os.Exit(1)
-	}
-	name, account := args[0], args[1]
-
-	c := dial(addr)
-	defer c.Close() //nolint:errcheck
-
-	reply, err := c.Link(name, account)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
-	if jsonOut {
-		printJSON(reply)
-		return
-	}
-
-	switch reply.Status {
-	case schema.LinkStatusPending:
-		fmt.Printf("Scan this URI with Signal on your phone:\n%s\n", reply.URI)
-		fmt.Println("Polling for completion...")
-		pollLinkStatus(c, jsonOut)
-	case schema.LinkStatusComplete:
-		fmt.Printf("Linked successfully.\n  Account: %s\n  ACI:     %s\n  Phone:   %s\n",
-			reply.Account, reply.ACI, reply.Phone)
-	case schema.LinkStatusError:
-		fmt.Fprintf(os.Stderr, "link failed: %s\n", reply.Error)
-		os.Exit(1)
-	}
+func fatalf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "secmsg: "+format+"\n", args...)
+	os.Exit(1)
 }
 
-// pollLinkStatus polls link.status until complete or error.
-func pollLinkStatus(c *client.Client, jsonOut bool) {
-	for {
-		reply, err := c.LinkStatus()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error polling link status: %v\n", err)
-			os.Exit(1)
-		}
+func usage() {
+	fmt.Fprintf(os.Stderr, `secmsg — CLI client for sigd
 
-		switch reply.Status {
-		case schema.LinkStatusPending:
-			// Continue polling.
-		case schema.LinkStatusComplete:
-			if jsonOut {
-				printJSON(reply)
-				return
-			}
-			fmt.Printf("Linked successfully.\n  Account: %s\n  ACI:     %s\n  Phone:   %s\n",
-				reply.Account, reply.ACI, reply.Phone)
-			return
-		case schema.LinkStatusError:
-			fmt.Fprintf(os.Stderr, "link failed: %s\n", reply.Error)
-			os.Exit(1)
-		}
-	}
-}
+Usage:
+  secmsg [flags] <command> [args...]
 
-// ---------------------------------------------------------------------------
-// status
-// ---------------------------------------------------------------------------
+Flags:
+  -addr string   sigd address (default "localhost:7777")
+  -json          output as JSON
 
-// runStatus prints the current link/connection status.
-// Usage: status [account]
-func runStatus(addr string, jsonOut bool, args []string) {
-	var account string
-	if len(args) > 0 {
-		account = args[0]
-	}
-
-	c := dial(addr)
-	defer c.Close() //nolint:errcheck
-
-	result, err := c.Status(account)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
-	if jsonOut {
-		printJSON(result)
-		return
-	}
-
-	if !result.Linked {
-		fmt.Println("Not linked.")
-		return
-	}
-	fmt.Printf("Linked:    %v\nConnected: %v\nAccount:   %s\nACI:       %s\nPhone:     %s\n",
-		result.Linked, result.Connected, result.Account, result.ACI, result.Phone)
-}
-
-// ---------------------------------------------------------------------------
-// send
-// ---------------------------------------------------------------------------
-
-// runSend sends a 1:1 message.
-// Usage: send <account> <to> <body>
-func runSend(addr string, jsonOut bool, args []string) {
-	if len(args) < 3 {
-		fmt.Fprintf(os.Stderr, "usage: secmsg send <account> <to> <body>\n")
-		os.Exit(1)
-	}
-	account, to, body := args[0], args[1], args[2]
-
-	c := dial(addr)
-	defer c.Close() //nolint:errcheck
-
-	ts, err := c.Send(to, body, account)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
-	if jsonOut {
-		printJSON(map[string]any{"timestamp": ts})
-		return
-	}
-	fmt.Printf("Sent. Timestamp: %d\n", ts)
-}
-
-// ---------------------------------------------------------------------------
-// receive
-// ---------------------------------------------------------------------------
-
-// runReceive polls once for pending messages.
-// Usage: receive [timeout]
-func runReceive(addr string, jsonOut bool, args []string) {
-	timeout := defaultTimeout
-	if len(args) > 0 {
-		n, err := strconv.Atoi(args[0])
-		if err != nil || n <= 0 {
-			fmt.Fprintf(os.Stderr, "error: invalid timeout %q\n", args[0])
-			os.Exit(1)
-		}
-		timeout = n
-	}
-
-	c := dial(addr)
-	defer c.Close() //nolint:errcheck
-
-	msgs, err := c.Receive(timeout)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
-	if jsonOut {
-		printJSON(map[string]any{"messages": msgs})
-		return
-	}
-
-	if len(msgs) == 0 {
-		fmt.Println("No messages.")
-		return
-	}
-	for _, m := range msgs {
-		fmt.Printf("[%d] from=%s type=%s body=%s\n", m.Timestamp, m.From, m.Type, m.Body)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// subscribe
-// ---------------------------------------------------------------------------
-
-// runSubscribe subscribes to push notifications and streams them to stdout.
-// Usage: subscribe
-func runSubscribe(addr string, jsonOut bool, _ []string) {
-	c := dial(addr)
-	defer c.Close() //nolint:errcheck
-
-	ch, err := c.Subscribe()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
-	if !jsonOut {
-		fmt.Println("Subscribed. Waiting for notifications (Ctrl+C to stop)...")
-	}
-
-	for env := range ch {
-		if jsonOut {
-			printJSON(env)
-			continue
-		}
-		printEnvelope(env)
-	}
-}
-
-// printEnvelope pretty-prints a notification envelope.
-func printEnvelope(env *schema.Envelope) {
-	switch env.Method {
-	case schema.MethodMessage:
-		var p schema.MessageParams
-		if err := json.Unmarshal(env.Params, &p); err != nil {
-			fmt.Printf("[message] (decode error: %v)\n", err)
-			return
-		}
-		fmt.Printf("[message] from=%s to=%s type=%s ts=%d body=%q\n",
-			p.From.ID, p.To.ID, p.Type, p.Timestamp, p.Body)
-
-	case schema.MethodReceipt:
-		var p schema.ReceiptParams
-		if err := json.Unmarshal(env.Params, &p); err != nil {
-			fmt.Printf("[receipt] (decode error: %v)\n", err)
-			return
-		}
-		fmt.Printf("[receipt] from=%s type=%s\n", p.From.ID, p.Type)
-
-	case schema.MethodTyping:
-		var p schema.TypingParams
-		if err := json.Unmarshal(env.Params, &p); err != nil {
-			fmt.Printf("[typing] (decode error: %v)\n", err)
-			return
-		}
-		fmt.Printf("[typing] from=%s action=%s\n", p.From.ID, p.Action)
-
-	case schema.MethodStatus:
-		var p schema.StatusParams
-		if err := json.Unmarshal(env.Params, &p); err != nil {
-			fmt.Printf("[status] (decode error: %v)\n", err)
-			return
-		}
-		fmt.Printf("[status] connected=%v\n", p.Connected)
-
-	case schema.MethodConversationCleared:
-		var p schema.ConversationClearedParams
-		if err := json.Unmarshal(env.Params, &p); err != nil {
-			fmt.Printf("[conversation.cleared] (decode error: %v)\n", err)
-			return
-		}
-		fmt.Printf("[conversation.cleared] peer=%s full=%v\n", p.Peer, p.IsFullDelete)
-
-	default:
-		// Unknown notification — print as raw JSON.
-		fmt.Printf("[%s] %s\n", env.Method, env.Params)
-	}
+Commands:
+  send          <account> <to> <message>
+  send-group    <account> <groupId> <message>
+  contacts      <account>
+  groups        <account>
+  receipt-read  <account> <to> <timestamp> [<timestamp>...]
+  typing        <account> <to> <true|false>
+  link          <account> <name>
+  link-status   <account>
+  poll-link     <account>
+  listen
+  help
+`)
 }
