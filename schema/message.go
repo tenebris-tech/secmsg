@@ -4,9 +4,9 @@ const MethodMessage = "message"
 
 // Message type values for MessageParams.Type.
 const (
-	MessageTypeText   = "text"
-	MessageTypeEdit   = "edit"
-	MessageTypeDelete = "delete"
+	MessageTypeText    = "text"
+	MessageTypeEdit    = "edit"
+	MessageTypeRetract = "retract"
 )
 
 // MessageParams is the params payload for a "message" notification.
