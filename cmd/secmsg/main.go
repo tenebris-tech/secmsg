@@ -204,14 +204,7 @@ func printStatus(raw json.RawMessage, account string) {
 		if err := json.Unmarshal(raw, &s); err != nil {
 			fatalf("status: unmarshal: %v", err)
 		}
-		fmt.Printf("account: %s  linked: %v  connected: %v", s.Account, s.Linked, s.Connected)
-		if s.ACI != "" {
-			fmt.Printf("  aci: %s", s.ACI)
-		}
-		if s.Phone != "" {
-			fmt.Printf("  phone: %s", s.Phone)
-		}
-		fmt.Println()
+		printStatusRow(s)
 		return
 	}
 
@@ -220,15 +213,20 @@ func printStatus(raw json.RawMessage, account string) {
 		fatalf("status: unmarshal: %v", err)
 	}
 	for _, s := range all.Accounts {
-		fmt.Printf("account: %s  linked: %v  connected: %v", s.Account, s.Linked, s.Connected)
-		if s.ACI != "" {
-			fmt.Printf("  aci: %s", s.ACI)
-		}
-		if s.Phone != "" {
-			fmt.Printf("  phone: %s", s.Phone)
-		}
-		fmt.Println()
+		printStatusRow(s)
 	}
+}
+
+// printStatusRow renders one account row from a status reply.
+func printStatusRow(s schema.StatusReply) {
+	fmt.Printf("account: %s  linked: %v  connected: %v", s.Account, s.Linked, s.Connected)
+	if aci := s.Identifiers["aci"]; aci != "" {
+		fmt.Printf("  aci: %s", aci)
+	}
+	if phone := s.Identifiers["phone"]; phone != "" {
+		fmt.Printf("  phone: %s", phone)
+	}
+	fmt.Println()
 }
 
 // pollLinkStatus polls link.status once per second until the link is complete
