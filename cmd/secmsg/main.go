@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -10,11 +11,12 @@ import (
 	"time"
 
 	"github.com/tenebris-tech/secmsg/client"
+	"github.com/tenebris-tech/secmsg/global"
 	"github.com/tenebris-tech/secmsg/schema"
 )
 
 func main() {
-	addr := flag.String("addr", "127.0.0.1:9801", "sigd address")
+	addr := flag.String("addr", client.DefaultAddr, "sigd address")
 	asJSON := flag.Bool("json", false, "output as JSON")
 	flag.Usage = usage
 	flag.Parse()
@@ -33,6 +35,9 @@ func main() {
 	case "help":
 		usage()
 		return
+	case "version":
+		fmt.Printf("%s %s\n", global.ProgramName, global.Version)
+		return
 	}
 
 	c, err := client.Dial(*addr)
@@ -41,12 +46,15 @@ func main() {
 	}
 	defer c.Close()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	switch cmd {
 	case "send":
 		if len(rest) < 3 {
 			fatalf("usage: send <account> <to> <message>")
 		}
-		if err := c.SendMessage(schema.ServiceSignal, rest[0], rest[1], rest[2]); err != nil {
+		if err := c.SendMessage(ctx, schema.ServiceSignal, rest[0], rest[1], rest[2]); err != nil {
 			fatalf("send: %v", err)
 		}
 
@@ -54,7 +62,7 @@ func main() {
 		if len(rest) < 3 {
 			fatalf("usage: send-group <account> <groupId> <message>")
 		}
-		if err := c.SendGroupMessage(schema.ServiceSignal, rest[0], rest[1], rest[2]); err != nil {
+		if err := c.SendGroupMessage(ctx, schema.ServiceSignal, rest[0], rest[1], rest[2]); err != nil {
 			fatalf("send-group: %v", err)
 		}
 
@@ -62,7 +70,7 @@ func main() {
 		if len(rest) < 1 {
 			fatalf("usage: contacts <account>")
 		}
-		contacts, err := c.Contacts(schema.ServiceSignal, rest[0])
+		contacts, err := c.Contacts(ctx, schema.ServiceSignal, rest[0])
 		if err != nil {
 			fatalf("contacts: %v", err)
 		}
@@ -72,7 +80,7 @@ func main() {
 		if len(rest) < 1 {
 			fatalf("usage: groups <account>")
 		}
-		groups, err := c.Groups(schema.ServiceSignal, rest[0])
+		groups, err := c.Groups(ctx, schema.ServiceSignal, rest[0])
 		if err != nil {
 			fatalf("groups: %v", err)
 		}
@@ -89,7 +97,7 @@ func main() {
 		if err != nil {
 			fatalf("receipt-read: %v", err)
 		}
-		if err := c.SendReceiptRead(schema.ServiceSignal, account, to, timestamps); err != nil {
+		if err := c.SendReceiptRead(ctx, schema.ServiceSignal, account, to, timestamps); err != nil {
 			fatalf("receipt-read: %v", err)
 		}
 
@@ -101,7 +109,7 @@ func main() {
 		if err != nil {
 			fatalf("typing: invalid bool %q: %v", rest[2], err)
 		}
-		if err := c.SendTyping(schema.ServiceSignal, rest[0], rest[1], typing); err != nil {
+		if err := c.SendTyping(ctx, schema.ServiceSignal, rest[0], rest[1], typing); err != nil {
 			fatalf("typing: %v", err)
 		}
 
@@ -109,7 +117,7 @@ func main() {
 		if len(rest) < 2 {
 			fatalf("usage: link <account> <name>")
 		}
-		reply, err := c.LinkRequest(rest[0], rest[1])
+		reply, err := c.LinkRequest(ctx, rest[0], rest[1])
 		if err != nil {
 			fatalf("link: %v", err)
 		}
@@ -126,7 +134,7 @@ func main() {
 		if len(rest) < 1 {
 			fatalf("usage: link-status <account>")
 		}
-		reply, err := c.LinkStatus(rest[0])
+		reply, err := c.LinkStatus(ctx, rest[0])
 		if err != nil {
 			fatalf("link-status: %v", err)
 		}
@@ -150,7 +158,7 @@ func main() {
 		if len(rest) < 1 {
 			fatalf("usage: poll-link <account>")
 		}
-		if err := pollLinkStatus(c, rest[0], *asJSON); err != nil {
+		if err := pollLinkStatus(ctx, c, rest[0], *asJSON); err != nil {
 			fatalf("poll-link: %v", err)
 		}
 
@@ -160,23 +168,42 @@ func main() {
 		if len(rest) > 0 {
 			account = rest[0]
 		}
-		result, err := c.Status(account)
-		if err != nil {
-			fatalf("status: %v", err)
-		}
-		if *asJSON {
-			printJSON(result)
+		if account != "" {
+			result, err := c.Status(ctx, account)
+			if err != nil {
+				fatalf("status: %v", err)
+			}
+			if *asJSON {
+				printJSON(result)
+			} else {
+				printStatusRow(*result)
+			}
 		} else {
-			printStatus(result, account)
+			result, err := c.StatusAll(ctx)
+			if err != nil {
+				fatalf("status: %v", err)
+			}
+			if *asJSON {
+				printJSON(result)
+			} else {
+				if len(result.Accounts) == 0 {
+					fmt.Println("No accounts configured.")
+				} else {
+					for _, s := range result.Accounts {
+						printStatusRow(s)
+					}
+				}
+			}
 		}
 
 	case "unlink":
 		if len(rest) < 1 {
 			fatalf("usage: unlink <account>")
 		}
-		if err := c.Unlink(rest[0]); err != nil {
+		if err := c.Unlink(ctx, rest[0]); err != nil {
 			fatalf("unlink: %v", err)
 		}
+		fmt.Println("Account unlinked.")
 
 	case "listen":
 		// listen — subscribe to notifications and print them.
@@ -195,28 +222,6 @@ func main() {
 	}
 }
 
-// printStatus renders a human-readable status summary from the raw JSON
-// returned by the status RPC. When account is empty the response is a
-// StatusAllReply; otherwise it is a StatusReply.
-func printStatus(raw json.RawMessage, account string) {
-	if account != "" {
-		var s schema.StatusReply
-		if err := json.Unmarshal(raw, &s); err != nil {
-			fatalf("status: unmarshal: %v", err)
-		}
-		printStatusRow(s)
-		return
-	}
-
-	var all schema.StatusAllReply
-	if err := json.Unmarshal(raw, &all); err != nil {
-		fatalf("status: unmarshal: %v", err)
-	}
-	for _, s := range all.Accounts {
-		printStatusRow(s)
-	}
-}
-
 // printStatusRow renders one account row from a status reply.
 func printStatusRow(s schema.StatusReply) {
 	fmt.Printf("account: %s  linked: %v  connected: %v", s.Account, s.Linked, s.Connected)
@@ -231,9 +236,9 @@ func printStatusRow(s schema.StatusReply) {
 
 // pollLinkStatus polls link.status once per second until the link is complete
 // or has errored.
-func pollLinkStatus(c *client.Client, account string, asJSON bool) error {
+func pollLinkStatus(ctx context.Context, c *client.Client, account string, asJSON bool) error {
 	for {
-		reply, err := c.LinkStatus(account)
+		reply, err := c.LinkStatus(ctx, account)
 		if err != nil {
 			return err
 		}
@@ -291,13 +296,13 @@ func fatalf(format string, args ...any) {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `secmsg — CLI client for sigd
+	fmt.Fprintf(os.Stderr, `%s %s — CLI client for sigd
 
 Usage:
   secmsg [flags] <command> [args...]
 
 Flags:
-  -addr string   sigd address (default "127.0.0.1:9801")
+  -addr string   sigd address (default %q)
   -json          output as JSON
 
 Commands:
@@ -313,6 +318,7 @@ Commands:
   status        [account]
   unlink        <account>
   listen
+  version
   help
-`)
+`, global.ProgramName, global.Version, client.DefaultAddr)
 }

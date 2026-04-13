@@ -9,5 +9,6 @@ const (
 	MethodContactsList = "contacts.list"
 	MethodGroupsList   = "groups.list"
 	MethodReceiptRead  = "receipt.read"
+	MethodStatus       = "status"
 	MethodUnlink       = "unlink"
 )

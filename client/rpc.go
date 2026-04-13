@@ -1,9 +1,14 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
+	"time"
+
+	"github.com/tenebris-tech/secmsg/schema"
 )
 
 // rpcRequest is the wire format for a JSON-RPC 2.0 request.
@@ -41,23 +46,25 @@ func (e *rpcError) Error() string {
 
 // hello reads and validates the server greeting.
 func (c *Client) hello() error {
-	if !c.scanner.Scan() {
-		err := c.scanner.Err()
-		if err == nil {
-			err = io.EOF
+	line, err := c.reader.ReadString('\n')
+	if err != nil {
+		if err == io.EOF && line == "" {
+			return fmt.Errorf("hello: %w", io.EOF)
 		}
-		return fmt.Errorf("hello: %w", err)
+		if err != io.EOF {
+			return fmt.Errorf("hello: %w", err)
+		}
 	}
-	line := c.scanner.Bytes()
+	line = strings.TrimRight(line, "\n")
 
 	var greeting struct {
 		JSONRPC string `json:"jsonrpc"`
 		Method  string `json:"method"`
 	}
-	if err := json.Unmarshal(line, &greeting); err != nil {
+	if err := json.Unmarshal([]byte(line), &greeting); err != nil {
 		return fmt.Errorf("hello: malformed greeting: %w", err)
 	}
-	if greeting.Method != "hello" {
+	if greeting.Method != schema.MethodHello {
 		return fmt.Errorf("hello: unexpected greeting method %q", greeting.Method)
 	}
 	return nil
@@ -66,7 +73,7 @@ func (c *Client) hello() error {
 // call sends a JSON-RPC request and waits for the corresponding response.
 // mu is held only while registering/deregistering the pending channel; writes
 // to the connection use a separate writeMu so they never block readers.
-func (c *Client) call(method string, params any, result any) error {
+func (c *Client) call(ctx context.Context, method string, params any, result any) error {
 	c.mu.Lock()
 	c.nextID++
 	id := c.nextID
@@ -89,8 +96,12 @@ func (c *Client) call(method string, params any, result any) error {
 	}
 	data = append(data, '\n')
 
-	// Serialise writes without holding mu.
+	// Serialise writes without holding mu. Apply context deadline if available.
 	c.writeMu.Lock()
+	if deadline, ok := ctx.Deadline(); ok {
+		c.conn.SetWriteDeadline(deadline)
+		defer c.conn.SetWriteDeadline(time.Time{})
+	}
 	_, err = c.conn.Write(data)
 	c.writeMu.Unlock()
 	if err != nil {
@@ -100,20 +111,27 @@ func (c *Client) call(method string, params any, result any) error {
 		return fmt.Errorf("write request: %w", err)
 	}
 
-	// Wait for the response or client shutdown.
-	resp, ok := <-ch
-	if !ok {
-		return fmt.Errorf("client closed before response for id %d", id)
-	}
-	if resp.Error != nil {
-		return resp.Error
-	}
-	if result != nil && resp.Result != nil {
-		if err := json.Unmarshal(resp.Result, result); err != nil {
-			return fmt.Errorf("unmarshal result: %w", err)
+	// Wait for the response, context cancellation, or client shutdown.
+	select {
+	case resp, ok := <-ch:
+		if !ok {
+			return fmt.Errorf("client closed before response for id %d", id)
 		}
+		if resp.Error != nil {
+			return resp.Error
+		}
+		if result != nil && resp.Result != nil {
+			if err := json.Unmarshal(resp.Result, result); err != nil {
+				return fmt.Errorf("unmarshal result: %w", err)
+			}
+		}
+		return nil
+	case <-ctx.Done():
+		c.mu.Lock()
+		delete(c.pending, id)
+		c.mu.Unlock()
+		return ctx.Err()
 	}
-	return nil
 }
 
 // readLoop reads newline-delimited JSON from the connection and dispatches
@@ -122,39 +140,54 @@ func (c *Client) call(method string, params any, result any) error {
 func (c *Client) readLoop() {
 	defer c.wg.Done()
 
-	for c.scanner.Scan() {
-		line := c.scanner.Bytes()
+	for {
+		line, err := c.reader.ReadString('\n')
 
-		// Peek at the ID field to decide whether this is a response or a notification.
-		var peek struct {
-			ID *uint64 `json:"id"`
-		}
-		if err := json.Unmarshal(line, &peek); err != nil {
-			continue
+		// Process whatever was read before checking the error.
+		if line != "" {
+			line = strings.TrimRight(line, "\n")
+
+			// Peek at the ID field to decide whether this is a response or a notification.
+			var peek struct {
+				ID *uint64 `json:"id"`
+			}
+			if jsonErr := json.Unmarshal([]byte(line), &peek); jsonErr == nil {
+				if peek.ID != nil {
+					// Response to a pending call.
+					var resp rpcResponse
+					if jsonErr := json.Unmarshal([]byte(line), &resp); jsonErr == nil {
+						c.mu.Lock()
+						ch, ok := c.pending[resp.ID]
+						if ok {
+							delete(c.pending, resp.ID)
+						}
+						c.mu.Unlock()
+						if ok {
+							ch <- &resp
+						}
+					}
+				} else {
+					// Server-push notification.
+					var notif rpcNotification
+					if jsonErr := json.Unmarshal([]byte(line), &notif); jsonErr == nil {
+						c.dispatchNotification(&notif)
+					}
+				}
+			}
 		}
 
-		if peek.ID != nil {
-			// Response to a pending call.
-			var resp rpcResponse
-			if err := json.Unmarshal(line, &resp); err != nil {
-				continue
+		if err != nil {
+			// On io.EOF check if client was intentionally closed.
+			if err == io.EOF {
+				break
 			}
-			c.mu.Lock()
-			ch, ok := c.pending[resp.ID]
-			if ok {
-				delete(c.pending, resp.ID)
+			// For any other error, check if it's due to an intentional close.
+			select {
+			case <-c.done:
+			default:
+				// Unexpected read error.
 			}
-			c.mu.Unlock()
-			if ok {
-				ch <- &resp
-			}
-		} else {
-			// Server-push notification.
-			var notif rpcNotification
-			if err := json.Unmarshal(line, &notif); err != nil {
-				continue
-			}
-			c.dispatchNotification(&notif)
+			break
 		}
 	}
 }

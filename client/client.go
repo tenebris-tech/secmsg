@@ -8,11 +8,14 @@ import (
 	"sync"
 )
 
+// DefaultAddr is the default address of the sigd daemon.
+const DefaultAddr = "127.0.0.1:9801"
+
 // Client holds an active connection to sigd and manages request/response
 // multiplexing and notification dispatch.
 type Client struct {
-	conn    net.Conn
-	scanner *bufio.Scanner
+	conn   net.Conn
+	reader *bufio.Reader
 
 	// mu protects pending and nextID only — never held across I/O.
 	mu      sync.Mutex
@@ -42,7 +45,7 @@ func Dial(addr string) (*Client, error) {
 
 	c := &Client{
 		conn:    conn,
-		scanner: bufio.NewScanner(conn),
+		reader:  bufio.NewReader(conn),
 		pending: make(map[uint64]chan *rpcResponse),
 		done:    make(chan struct{}),
 	}

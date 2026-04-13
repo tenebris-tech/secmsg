@@ -32,13 +32,3 @@ type InfoParams struct {
 	AccountIDSchema []AccountIDField `json:"account_id_schema"`
 	Capabilities    []string         `json:"capabilities"`
 }
-
-// AccountItem is a single entry in the accounts.list response and in the
-// multi-account status response. Identifiers keys match those declared in the
-// daemon's account_id_schema from hello/info.
-type AccountItem struct {
-	Account     string            `json:"account"`
-	Identifiers map[string]string `json:"identifiers"`
-	Linked      bool              `json:"linked"`
-	Connected   bool              `json:"connected"`
-}
