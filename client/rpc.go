@@ -207,6 +207,9 @@ func (c *Client) readLoop() {
 			select {
 			case <-c.done:
 			default:
+				c.mu.Lock()
+				c.readErr = err
+				c.mu.Unlock()
 				if c.logger != nil {
 					c.logger.Errorf("%s: connection error: %v", global.AppName, err)
 				}

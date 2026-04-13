@@ -45,10 +45,11 @@ type Client struct {
 	timeout time.Duration
 	logger  global.Logger
 
-	// mu protects pending and nextID only — never held across I/O.
+	// mu protects pending, nextID, and readErr — never held across I/O.
 	mu      sync.Mutex
 	pending map[uint64]chan *rpcResponse
 	nextID  uint64
+	readErr error // set by readLoop on unexpected connection error
 
 	// writeMu serialises concurrent writes to conn without blocking reads or
 	// request-tracking operations.
