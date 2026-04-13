@@ -36,7 +36,7 @@ func newTestServer(t *testing.T, handler func(method string, id uint64) json.Raw
 		defer conn.Close()
 
 		// Send hello.
-		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"hello"}`+"\n")
+		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"%s"}`+"\n", schema.MethodHello)
 
 		reader := bufio.NewReader(conn)
 		for {
@@ -122,7 +122,7 @@ func TestRPCError(t *testing.T) {
 			return
 		}
 		defer conn.Close()
-		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"hello"}`+"\n")
+		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"%s"}`+"\n", schema.MethodHello)
 		reader := bufio.NewReader(conn)
 		for {
 			line, err := reader.ReadString('\n')
@@ -170,10 +170,10 @@ func TestSubscribeAndDispatch(t *testing.T) {
 			return
 		}
 		defer conn.Close()
-		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"hello"}`+"\n")
+		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"%s"}`+"\n", schema.MethodHello)
 		// Give the client a moment to subscribe, then send a notification.
 		<-notifSent
-		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"message","params":{"body":"hi"}}`+"\n")
+		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"%s","params":{"body":"hi"}}`+"\n", schema.MethodMessage)
 		// Keep connection open until the test signals completion.
 		<-serverDone
 	}()
@@ -192,7 +192,7 @@ func TestSubscribeAndDispatch(t *testing.T) {
 
 	select {
 	case env := <-ch:
-		if env.Method != "message" {
+		if env.Method != schema.MethodMessage {
 			t.Errorf("expected method=message, got %q", env.Method)
 		}
 	case <-time.After(2 * time.Second):
@@ -215,12 +215,12 @@ func TestSubscribeCancelNoPanic(t *testing.T) {
 			return
 		}
 		defer conn.Close()
-		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"hello"}`+"\n")
+		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"%s"}`+"\n", schema.MethodHello)
 		// Blast many notifications. The goroutine exits immediately after,
 		// causing the server-side connection to close and the client's readLoop
 		// to see EOF once all buffered notifications are consumed.
 		for i := 0; i < 100; i++ {
-			fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"message","params":{}}`+"\n")
+			fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"%s","params":{}}`+"\n", schema.MethodMessage)
 		}
 	}()
 

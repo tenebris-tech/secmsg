@@ -2,6 +2,7 @@ package schema
 
 // RPC method name constants for use in both server dispatch and client calls.
 const (
+	MethodMessage      = "message"
 	MethodSend         = "send"
 	MethodSendGroup    = "send.group"
 	MethodContactsList = "contacts.list"

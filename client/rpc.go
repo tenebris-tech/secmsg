@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tenebris-tech/secmsg/global"
 	"github.com/tenebris-tech/secmsg/schema"
 )
 
@@ -107,7 +106,7 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 	data = append(data, '\n')
 
 	if c.logger != nil {
-		c.logger.Infof("%s: -> %s", global.AppName, method)
+		c.logger.Debugf("rpc send method=%s", method)
 	}
 
 	// Serialise writes without holding mu. Apply context deadline if available,
@@ -135,12 +134,12 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 		}
 		if resp.Error != nil {
 			if c.logger != nil {
-				c.logger.Errorf("%s: <- %s error: %v", global.AppName, method, resp.Error)
+				c.logger.Warningf("rpc error method=%s err=%v", method, resp.Error)
 			}
 			return resp.Error
 		}
 		if c.logger != nil {
-			c.logger.Infof("%s: <- %s ok", global.AppName, method)
+			c.logger.Debugf("rpc recv method=%s", method)
 		}
 		if result != nil && resp.Result != nil {
 			if err := json.Unmarshal(resp.Result, result); err != nil {
@@ -177,7 +176,11 @@ func (c *Client) readLoop() {
 				if peek.ID != nil {
 					// Response to a pending call.
 					var resp rpcResponse
-					if jsonErr := json.Unmarshal([]byte(line), &resp); jsonErr == nil {
+					if jsonErr := json.Unmarshal([]byte(line), &resp); jsonErr != nil {
+						if c.logger != nil {
+							c.logger.Warningf("readLoop: failed to unmarshal response err=%v", jsonErr)
+						}
+					} else {
 						c.mu.Lock()
 						ch, ok := c.pending[resp.ID]
 						if ok {
@@ -191,10 +194,16 @@ func (c *Client) readLoop() {
 				} else {
 					// Server-push notification.
 					var notif rpcNotification
-					if jsonErr := json.Unmarshal([]byte(line), &notif); jsonErr == nil {
+					if jsonErr := json.Unmarshal([]byte(line), &notif); jsonErr != nil {
+						if c.logger != nil {
+							c.logger.Warningf("readLoop: failed to unmarshal notification err=%v", jsonErr)
+						}
+					} else {
 						c.dispatchNotification(&notif)
 					}
 				}
+			} else if c.logger != nil {
+				c.logger.Warningf("readLoop: malformed JSON err=%v raw=%s", jsonErr, line)
 			}
 		}
 
@@ -211,7 +220,7 @@ func (c *Client) readLoop() {
 				c.readErr = err
 				c.mu.Unlock()
 				if c.logger != nil {
-					c.logger.Errorf("%s: connection error: %v", global.AppName, err)
+					c.logger.Errorf("connection error err=%v", err)
 				}
 			}
 			break
