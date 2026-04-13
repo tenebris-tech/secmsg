@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tenebris-tech/secmsg/global"
 	"github.com/tenebris-tech/secmsg/schema"
 )
 
@@ -48,12 +49,14 @@ func (e *rpcError) Error() string {
 func (c *Client) hello() error {
 	line, err := c.reader.ReadString('\n')
 	if err != nil {
-		if err == io.EOF && line == "" {
+		if err == io.EOF && len(line) == 0 {
 			return fmt.Errorf("hello: %w", io.EOF)
 		}
 		if err != io.EOF {
 			return fmt.Errorf("hello: %w", err)
 		}
+		// err == io.EOF && len(line) > 0: the server sent the greeting without
+		// a trailing newline. Accept the partial line as a valid greeting.
 	}
 	line = strings.TrimRight(line, "\n")
 
@@ -74,6 +77,13 @@ func (c *Client) hello() error {
 // mu is held only while registering/deregistering the pending channel; writes
 // to the connection use a separate writeMu so they never block readers.
 func (c *Client) call(ctx context.Context, method string, params any, result any) error {
+	// Apply the configured timeout when the caller's context has no deadline.
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
+	}
+
 	c.mu.Lock()
 	c.nextID++
 	id := c.nextID
@@ -96,13 +106,19 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 	}
 	data = append(data, '\n')
 
-	// Serialise writes without holding mu. Apply context deadline if available.
+	if c.logger != nil {
+		c.logger.Printf("%s: -> %s", global.ProgramName, method)
+	}
+
+	// Serialise writes without holding mu. Apply context deadline if available,
+	// then clear it explicitly before releasing writeMu so that a subsequent
+	// goroutine cannot observe a stale deadline.
 	c.writeMu.Lock()
 	if deadline, ok := ctx.Deadline(); ok {
 		c.conn.SetWriteDeadline(deadline)
-		defer c.conn.SetWriteDeadline(time.Time{})
 	}
 	_, err = c.conn.Write(data)
+	c.conn.SetWriteDeadline(time.Time{})
 	c.writeMu.Unlock()
 	if err != nil {
 		c.mu.Lock()
@@ -118,7 +134,13 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 			return fmt.Errorf("client closed before response for id %d", id)
 		}
 		if resp.Error != nil {
+			if c.logger != nil {
+				c.logger.Printf("%s: <- %s error: %v", global.ProgramName, method, resp.Error)
+			}
 			return resp.Error
+		}
+		if c.logger != nil {
+			c.logger.Printf("%s: <- %s ok", global.ProgramName, method)
 		}
 		if result != nil && resp.Result != nil {
 			if err := json.Unmarshal(resp.Result, result); err != nil {
@@ -185,7 +207,9 @@ func (c *Client) readLoop() {
 			select {
 			case <-c.done:
 			default:
-				// Unexpected read error.
+				if c.logger != nil {
+					c.logger.Printf("%s: connection error: %v", global.ProgramName, err)
+				}
 			}
 			break
 		}

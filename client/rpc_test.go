@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -35,10 +36,14 @@ func newTestServer(t *testing.T, handler func(method string, id uint64) json.Raw
 		// Send hello.
 		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"hello"}`+"\n")
 
-		scanner := bufio.NewScanner(conn)
-		for scanner.Scan() {
+		reader := bufio.NewReader(conn)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
 			var req rpcRequest
-			if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+			if err := json.Unmarshal([]byte(strings.TrimRight(line, "\n")), &req); err != nil {
 				continue
 			}
 			result := handler(req.Method, req.ID)
@@ -116,10 +121,14 @@ func TestRPCError(t *testing.T) {
 		}
 		defer conn.Close()
 		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"hello"}`+"\n")
-		scanner := bufio.NewScanner(conn)
-		for scanner.Scan() {
+		reader := bufio.NewReader(conn)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
 			var req rpcRequest
-			if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+			if err := json.Unmarshal([]byte(strings.TrimRight(line, "\n")), &req); err != nil {
 				continue
 			}
 			resp, _ := json.Marshal(rpcResponse{

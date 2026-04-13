@@ -1,7 +1,5 @@
 package schema
 
-const MethodTyping = "typing"
-
 // Typing action values for TypingParams.Action.
 const (
 	TypingActionStarted = "started"

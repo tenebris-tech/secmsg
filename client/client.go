@@ -4,18 +4,45 @@ package client
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"net"
 	"sync"
+	"time"
 )
 
 // DefaultAddr is the default address of the sigd daemon.
 const DefaultAddr = "127.0.0.1:9801"
 
+const defaultTimeout = 10 * time.Second
+
+// Option configures a Client.
+type Option func(*Client)
+
+// WithTimeout sets the per-call RPC timeout applied when the caller's context
+// has no deadline. Default: 10s.
+func WithTimeout(d time.Duration) Option {
+	return func(c *Client) {
+		c.timeout = d
+	}
+}
+
+// WithLogger injects a logger for outbound RPC calls, responses, and
+// connection errors. Pass nil (or omit the option) for silent operation.
+func WithLogger(l *log.Logger) Option {
+	return func(c *Client) {
+		c.logger = l
+	}
+}
+
 // Client holds an active connection to sigd and manages request/response
 // multiplexing and notification dispatch.
 type Client struct {
+	addr   string
 	conn   net.Conn
 	reader *bufio.Reader
+
+	timeout time.Duration
+	logger  *log.Logger
 
 	// mu protects pending and nextID only — never held across I/O.
 	mu      sync.Mutex
@@ -35,20 +62,32 @@ type Client struct {
 	wg        sync.WaitGroup
 }
 
-// Dial connects to sigd at addr (e.g. "localhost:7777") and performs the
-// hello handshake.  The returned *Client is ready for use.
-func Dial(addr string) (*Client, error) {
+// New creates a configured but unconnected Client. Use Dial to establish the
+// connection, or use Dial directly as a one-shot constructor.
+func New(addr string, opts ...Option) *Client {
+	c := &Client{
+		addr:    addr,
+		pending: make(map[uint64]chan *rpcResponse),
+		done:    make(chan struct{}),
+		timeout: defaultTimeout,
+	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
+}
+
+// Dial connects to sigd at addr (e.g. "127.0.0.1:9801") and performs the
+// hello handshake. The returned *Client is ready for use.
+func Dial(addr string, opts ...Option) (*Client, error) {
+	c := New(addr, opts...)
+
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", addr, err)
 	}
-
-	c := &Client{
-		conn:    conn,
-		reader:  bufio.NewReader(conn),
-		pending: make(map[uint64]chan *rpcResponse),
-		done:    make(chan struct{}),
-	}
+	c.conn = conn
+	c.reader = bufio.NewReader(conn)
 
 	if err := c.hello(); err != nil {
 		conn.Close()
