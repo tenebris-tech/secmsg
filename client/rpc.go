@@ -161,6 +161,30 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 func (c *Client) readLoop() {
 	defer c.wg.Done()
 
+	// S3: On exit (any cause), signal disconnection and drain pending RPCs so
+	// callers return an error instead of hanging until context timeout.
+	// mu is released before sending to channels to avoid deadlock with callers
+	// that hold ctx cancellation and are trying to acquire mu simultaneously.
+	defer func() {
+		c.doneOnce.Do(func() { close(c.done) })
+
+		c.mu.Lock()
+		pending := make(map[uint64]chan *rpcResponse, len(c.pending))
+		for id, ch := range c.pending {
+			pending[id] = ch
+		}
+		c.pending = make(map[uint64]chan *rpcResponse)
+		c.mu.Unlock()
+
+		connErr := &rpcError{Code: -32000, Message: "connection closed"}
+		for _, ch := range pending {
+			select {
+			case ch <- &rpcResponse{Error: connErr}:
+			default:
+			}
+		}
+	}()
+
 	for {
 		line, err := c.reader.ReadString('\n')
 
@@ -227,13 +251,4 @@ func (c *Client) readLoop() {
 		}
 	}
 
-	// Signal connection drop and drain pending RPCs so blocked callers return
-	// rather than hanging until context cancellation.
-	c.doneOnce.Do(func() { close(c.done) })
-	c.mu.Lock()
-	for id, ch := range c.pending {
-		ch <- &rpcResponse{Error: &rpcError{Code: -32000, Message: "connection closed"}}
-		delete(c.pending, id)
-	}
-	c.mu.Unlock()
 }
