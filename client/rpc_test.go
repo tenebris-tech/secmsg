@@ -163,6 +163,7 @@ func TestSubscribeAndDispatch(t *testing.T) {
 	defer ln.Close()
 
 	notifSent := make(chan struct{})
+	serverDone := make(chan struct{})
 	go func() {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -173,8 +174,8 @@ func TestSubscribeAndDispatch(t *testing.T) {
 		// Give the client a moment to subscribe, then send a notification.
 		<-notifSent
 		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"message","params":{"body":"hi"}}`+"\n")
-		// Keep connection open.
-		time.Sleep(time.Second)
+		// Keep connection open until the test signals completion.
+		<-serverDone
 	}()
 
 	c, err := Dial(ln.Addr().String())
@@ -185,6 +186,7 @@ func TestSubscribeAndDispatch(t *testing.T) {
 
 	ch, cancel := c.Subscribe()
 	defer cancel()
+	defer close(serverDone)
 
 	close(notifSent)
 
@@ -214,24 +216,25 @@ func TestSubscribeCancelNoPanic(t *testing.T) {
 		}
 		defer conn.Close()
 		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"hello"}`+"\n")
-		// Blast many notifications.
+		// Blast many notifications. The goroutine exits immediately after,
+		// causing the server-side connection to close and the client's readLoop
+		// to see EOF once all buffered notifications are consumed.
 		for i := 0; i < 100; i++ {
 			fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"message","params":{}}`+"\n")
 		}
-		time.Sleep(500 * time.Millisecond)
 	}()
 
 	c, err := Dial(ln.Addr().String())
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	defer c.Close()
 
 	_, cancel := c.Subscribe()
 	// Cancel immediately — dispatch should not panic.
 	cancel()
 
-	// Give the read loop time to process all notifications against the now-
-	// cancelled subscription.
-	time.Sleep(200 * time.Millisecond)
+	// Wait for the read loop to finish processing all buffered notifications.
+	// c.Close blocks on wg.Wait until readLoop exits (which happens once the
+	// server closes the connection and all data is consumed).
+	c.Close()
 }
