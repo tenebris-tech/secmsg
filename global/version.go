@@ -2,6 +2,6 @@
 package global
 
 const (
-	AppName = "secmsg"
-	Version = "0.0.1"
+	AppName    = "secmsg"
+	AppVersion = "0.0.1"
 )

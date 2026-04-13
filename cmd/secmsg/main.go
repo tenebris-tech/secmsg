@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/tenebris-tech/mlogger"
 	"github.com/tenebris-tech/secmsg/client"
 	"github.com/tenebris-tech/secmsg/global"
 	"github.com/tenebris-tech/secmsg/schema"
@@ -18,6 +19,7 @@ import (
 func main() {
 	addr := flag.String("addr", client.DefaultAddr, "sigd address")
 	asJSON := flag.Bool("json", false, "output as JSON")
+	debug := flag.Bool("debug", false, "enable debug logging to stderr")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -36,11 +38,20 @@ func main() {
 		usage()
 		return
 	case "version":
-		fmt.Printf("%s %s\n", global.AppName, global.Version)
+		fmt.Printf("%s %s\n", global.AppName, global.AppVersion)
 		return
 	}
 
-	c, err := client.Dial(*addr)
+	log, err := mlogger.New(
+		mlogger.WithDebug(*debug),
+		mlogger.WithLogStdout(true),
+	)
+	if err != nil {
+		fatalf("init logger: %v", err)
+	}
+	defer log.Close()
+
+	c, err := client.Dial(*addr, client.WithLogger(log))
 	if err != nil {
 		fatalf("connect: %v", err)
 	}
@@ -216,6 +227,7 @@ func main() {
 				fmt.Printf("method=%s params=%s\n", env.Method, env.Params)
 			}
 		}
+		fmt.Fprintln(os.Stderr, "Connection closed.")
 
 	default:
 		fatalf("unknown command %q (use -help for usage)", cmd)
@@ -272,13 +284,34 @@ func parseTimestamps(ss []string) ([]uint64, error) {
 	return out, nil
 }
 
-// printResult prints val as JSON when requested, otherwise uses %+v.
+// printResult prints val as JSON when requested, otherwise prints each
+// schema.Party field on its own line for contacts/groups results.
 func printResult(asJSON bool, val any) {
 	if asJSON {
 		printJSON(val)
 		return
 	}
-	fmt.Printf("%+v\n", val)
+	switch v := val.(type) {
+	case []schema.Party:
+		for _, p := range v {
+			fmt.Printf("id: %s\n", p.ID)
+			if p.Name != "" {
+				fmt.Printf("name: %s\n", p.Name)
+			}
+			if p.Device != 0 {
+				fmt.Printf("device: %d\n", p.Device)
+			}
+			if p.About != "" {
+				fmt.Printf("about: %s\n", p.About)
+			}
+			if p.AboutEmoji != "" {
+				fmt.Printf("about_emoji: %s\n", p.AboutEmoji)
+			}
+			fmt.Println()
+		}
+	default:
+		fmt.Printf("%+v\n", v)
+	}
 }
 
 // printJSON marshals v to indented JSON and writes it to stdout.
@@ -320,5 +353,5 @@ Commands:
   listen
   version
   help
-`, global.AppName, global.Version, client.DefaultAddr)
+`, global.AppName, global.AppVersion, client.DefaultAddr)
 }

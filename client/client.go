@@ -4,10 +4,11 @@ package client
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/tenebris-tech/secmsg/global"
 )
 
 // DefaultAddr is the default address of the sigd daemon.
@@ -28,7 +29,7 @@ func WithTimeout(d time.Duration) Option {
 
 // WithLogger injects a logger for outbound RPC calls, responses, and
 // connection errors. Pass nil (or omit the option) for silent operation.
-func WithLogger(l *log.Logger) Option {
+func WithLogger(l global.Logger) Option {
 	return func(c *Client) {
 		c.logger = l
 	}
@@ -42,7 +43,7 @@ type Client struct {
 	reader *bufio.Reader
 
 	timeout time.Duration
-	logger  *log.Logger
+	logger  global.Logger
 
 	// mu protects pending and nextID only — never held across I/O.
 	mu      sync.Mutex

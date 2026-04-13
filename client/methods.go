@@ -53,6 +53,23 @@ type unlinkParams struct {
 	Account string `json:"account"`
 }
 
+// linkStatusParams is the wire payload for the link.status request.
+type linkStatusParams struct {
+	Account string `json:"account"`
+}
+
+// contactsParams is the wire payload for the contacts.list request.
+type contactsParams struct {
+	Service string `json:"service"`
+	Account string `json:"account"`
+}
+
+// groupsParams is the wire payload for the groups.list request.
+type groupsParams struct {
+	Service string `json:"service"`
+	Account string `json:"account"`
+}
+
 // SendMessage sends a text message to a 1:1 recipient.
 func (c *Client) SendMessage(ctx context.Context, service, account, to, body string) error {
 	params := sendMessageParams{
@@ -90,7 +107,7 @@ func (c *Client) LinkRequest(ctx context.Context, account, name string) (*schema
 
 // LinkStatus returns the current link state without starting a new link flow.
 func (c *Client) LinkStatus(ctx context.Context, account string) (*schema.LinkReply, error) {
-	params := map[string]string{"account": account}
+	params := linkStatusParams{Account: account}
 	var reply schema.LinkReply
 	if err := c.call(ctx, schema.MethodLinkStatus, params, &reply); err != nil {
 		return nil, err
@@ -100,7 +117,7 @@ func (c *Client) LinkStatus(ctx context.Context, account string) (*schema.LinkRe
 
 // Contacts returns the contact list for the given account.
 func (c *Client) Contacts(ctx context.Context, service, account string) ([]schema.Party, error) {
-	params := map[string]string{"service": service, "account": account}
+	params := contactsParams{Service: service, Account: account}
 	var result []schema.Party
 	if err := c.call(ctx, schema.MethodContactsList, params, &result); err != nil {
 		return nil, err
@@ -110,7 +127,7 @@ func (c *Client) Contacts(ctx context.Context, service, account string) ([]schem
 
 // Groups returns the group list for the given account.
 func (c *Client) Groups(ctx context.Context, service, account string) ([]schema.Party, error) {
-	params := map[string]string{"service": service, "account": account}
+	params := groupsParams{Service: service, Account: account}
 	var result []schema.Party
 	if err := c.call(ctx, schema.MethodGroupsList, params, &result); err != nil {
 		return nil, err
