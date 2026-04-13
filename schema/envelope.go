@@ -1,3 +1,5 @@
+// Package schema defines the wire types, method name constants, and
+// notification payloads for the sigd JSON-RPC 2.0 protocol.
 package schema
 
 import "encoding/json"

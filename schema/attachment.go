@@ -3,6 +3,18 @@ package schema
 // MethodAttachmentReady is the notification method name for attachment download completion.
 const MethodAttachmentReady = "attachment.ready"
 
+// Capability token constants for the attachment feature set.
+// These appear in the capabilities array of the hello/info response.
+const (
+	// CapAttachmentsMetadata indicates the daemon includes attachment metadata
+	// (filename, size, MIME type) in message notifications.
+	CapAttachmentsMetadata = "attachments.metadata"
+
+	// CapAttachmentsDownload indicates the daemon downloads and stores attachment
+	// content locally, sending an attachment.ready notification when complete.
+	CapAttachmentsDownload = "attachments.download"
+)
+
 // Attachment describes a file attached to a message.
 // The content is not included — only metadata. Downloading is handled separately.
 type Attachment struct {
