@@ -36,7 +36,7 @@ func main() {
 		usage()
 		return
 	case "version":
-		fmt.Printf("%s %s\n", global.ProgramName, global.Version)
+		fmt.Printf("%s %s\n", global.AppName, global.Version)
 		return
 	}
 
@@ -320,5 +320,5 @@ Commands:
   listen
   version
   help
-`, global.ProgramName, global.Version, client.DefaultAddr)
+`, global.AppName, global.Version, client.DefaultAddr)
 }

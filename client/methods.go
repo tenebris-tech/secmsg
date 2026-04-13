@@ -31,6 +31,11 @@ type receiptReadParams struct {
 }
 
 // typingParams is the wire payload for sending a typing indicator.
+//
+// Wire format asymmetry: the outbound request uses {typing: bool}, while the
+// inbound schema.TypingParams notification uses {action: "started"/"stopped"}.
+// This is intentional — sigd translates the bool to an action string before
+// broadcasting the notification to subscribers.
 type typingParams struct {
 	Service string `json:"service"`
 	Account string `json:"account"`

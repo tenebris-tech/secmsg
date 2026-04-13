@@ -107,7 +107,7 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 	data = append(data, '\n')
 
 	if c.logger != nil {
-		c.logger.Printf("%s: -> %s", global.ProgramName, method)
+		c.logger.Printf("%s: -> %s", global.AppName, method)
 	}
 
 	// Serialise writes without holding mu. Apply context deadline if available,
@@ -135,12 +135,12 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 		}
 		if resp.Error != nil {
 			if c.logger != nil {
-				c.logger.Printf("%s: <- %s error: %v", global.ProgramName, method, resp.Error)
+				c.logger.Printf("%s: <- %s error: %v", global.AppName, method, resp.Error)
 			}
 			return resp.Error
 		}
 		if c.logger != nil {
-			c.logger.Printf("%s: <- %s ok", global.ProgramName, method)
+			c.logger.Printf("%s: <- %s ok", global.AppName, method)
 		}
 		if result != nil && resp.Result != nil {
 			if err := json.Unmarshal(resp.Result, result); err != nil {
@@ -208,7 +208,7 @@ func (c *Client) readLoop() {
 			case <-c.done:
 			default:
 				if c.logger != nil {
-					c.logger.Printf("%s: connection error: %v", global.ProgramName, err)
+					c.logger.Printf("%s: connection error: %v", global.AppName, err)
 				}
 			}
 			break

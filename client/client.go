@@ -87,7 +87,7 @@ func Dial(addr string, opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("dial %s: %w", addr, err)
 	}
 	c.conn = conn
-	c.reader = bufio.NewReader(conn)
+	c.reader = bufio.NewReaderSize(conn, 256*1024)
 
 	if err := c.hello(); err != nil {
 		conn.Close()
