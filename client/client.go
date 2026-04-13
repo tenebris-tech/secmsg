@@ -60,6 +60,7 @@ type Client struct {
 	subs   []*subscription
 
 	closeOnce sync.Once
+	doneOnce  sync.Once
 	done      chan struct{}
 	wg        sync.WaitGroup
 }
@@ -106,7 +107,7 @@ func Dial(addr string, opts ...Option) (*Client, error) {
 func (c *Client) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
-		close(c.done)
+		c.doneOnce.Do(func() { close(c.done) })
 		err = c.conn.Close()
 
 		// Wake any goroutine blocked in readLoop.

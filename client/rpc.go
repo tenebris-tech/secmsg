@@ -203,7 +203,7 @@ func (c *Client) readLoop() {
 					}
 				}
 			} else if c.logger != nil {
-				c.logger.Warningf("readLoop: malformed JSON err=%v raw=%s", jsonErr, line)
+				c.logger.Warningf("malformed JSON from signal-cli: read %d bytes, parse error: %v", len(line), jsonErr)
 			}
 		}
 
@@ -226,4 +226,14 @@ func (c *Client) readLoop() {
 			break
 		}
 	}
+
+	// Signal connection drop and drain pending RPCs so blocked callers return
+	// rather than hanging until context cancellation.
+	c.doneOnce.Do(func() { close(c.done) })
+	c.mu.Lock()
+	for id, ch := range c.pending {
+		ch <- &rpcResponse{Error: &rpcError{Code: -32000, Message: "connection closed"}}
+		delete(c.pending, id)
+	}
+	c.mu.Unlock()
 }
