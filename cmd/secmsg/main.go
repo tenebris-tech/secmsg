@@ -20,7 +20,7 @@ import (
 func main() {
 	addr := flag.String("addr", client.DefaultAddr, "sigd address")
 	asJSON := flag.Bool("json", false, "output as JSON")
-	debug := flag.Bool("debug", false, "enable debug logging to stderr")
+	debug := flag.Bool("debug", false, "enable debug logging to /tmp/secmsg.log")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -357,6 +357,7 @@ Usage:
 Flags:
   -addr string   sigd address (default %q)
   -json          output as JSON
+  -debug         enable debug logging to /tmp/secmsg.log
 
 Commands:
   send          <account> <to> <message>
