@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/mdp/qrterminal/v3"
 	"github.com/tenebris-tech/mlogger"
 	"github.com/tenebris-tech/secmsg/client"
 	"github.com/tenebris-tech/secmsg/global"
@@ -137,7 +138,19 @@ func main() {
 		} else {
 			fmt.Printf("status: %s\n", reply.Status)
 			if reply.URI != "" {
-				fmt.Printf("uri: %s\n", reply.URI)
+				qrterminal.GenerateWithConfig(reply.URI, qrterminal.Config{
+					Level:          qrterminal.L,
+					Writer:         os.Stdout,
+					HalfBlocks:     true,
+					BlackChar:      "\033[40m \033[0m",
+					WhiteChar:      "\033[47m \033[0m",
+					BlackWhiteChar: "\033[40;37m▄\033[0m",
+					WhiteBlackChar: "\033[47;30m▄\033[0m",
+					QuietZone:      1,
+				})
+				fmt.Println("Scan the QR code above, or use this URI:")
+				fmt.Println(reply.URI)
+				fmt.Println()
 			}
 		}
 
@@ -216,8 +229,8 @@ func main() {
 		}
 		fmt.Println("Account unlinked.")
 
-	case "listen":
-		// listen — subscribe to notifications and print them.
+	case "subscribe":
+		// subscribe — subscribe to notifications and print them.
 		ch, cancel := c.Subscribe()
 		defer cancel()
 		for env := range ch {
@@ -350,7 +363,7 @@ Commands:
   poll-link     <account>
   status        [account]
   unlink        <account>
-  listen
+  subscribe
   version
   help
 `, global.AppName, global.AppVersion, client.DefaultAddr)
