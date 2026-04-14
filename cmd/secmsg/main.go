@@ -145,16 +145,7 @@ func main() {
 		} else {
 			fmt.Printf("status: %s\n", reply.Status)
 			if reply.URI != "" {
-				qrterminal.GenerateWithConfig(reply.URI, qrterminal.Config{
-					Level:          qrterminal.L,
-					Writer:         os.Stdout,
-					HalfBlocks:     true,
-					BlackChar:      "\033[40m \033[0m",
-					WhiteChar:      "\033[47m \033[0m",
-					BlackWhiteChar: "\033[40;37m▄\033[0m",
-					WhiteBlackChar: "\033[47;30m▄\033[0m",
-					QuietZone:      1,
-				})
+				qrterminal.GenerateHalfBlock(reply.URI, qrterminal.L, os.Stdout)
 				fmt.Println("Scan the QR code above, or use this URI:")
 				fmt.Println(reply.URI)
 				fmt.Println()
