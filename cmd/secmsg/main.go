@@ -45,7 +45,8 @@ func main() {
 
 	log, err := mlogger.New(
 		mlogger.WithDebug(*debug),
-		mlogger.WithLogStdout(true),
+		mlogger.WithLogFile("/dev/stderr"),
+		mlogger.WithLogStdout(false),
 	)
 	if err != nil {
 		fatalf("init logger: %v", err)
