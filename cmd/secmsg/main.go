@@ -43,15 +43,21 @@ func main() {
 		return
 	}
 
-	log, err := mlogger.New(
-		mlogger.WithDebug(*debug),
-		mlogger.WithLogFile("/dev/stderr"),
-		mlogger.WithLogStdout(false),
-	)
-	if err != nil {
-		fatalf("init logger: %v", err)
+	var log mlogger.Logger
+	if *debug {
+		var err error
+		log, err = mlogger.New(
+			mlogger.WithDebug(true),
+			mlogger.WithLogFile(os.TempDir()+"/secmsg.log"),
+			mlogger.WithLogStdout(false),
+		)
+		if err != nil {
+			fatalf("init logger: %v", err)
+		}
+		defer log.Close()
+	} else {
+		log = mlogger.NewNullLogger()
 	}
-	defer log.Close()
 
 	c, err := client.Dial(*addr, client.WithLogger(log))
 	if err != nil {
