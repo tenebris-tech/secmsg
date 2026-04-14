@@ -1,7 +1,5 @@
 package schema
 
-const MethodMessage = "message"
-
 // Message type values for MessageParams.Type.
 const (
 	MessageTypeText    = "text"

@@ -45,10 +45,11 @@ type Client struct {
 	timeout time.Duration
 	logger  global.Logger
 
-	// mu protects pending and nextID only — never held across I/O.
+	// mu protects pending, nextID, and readErr — never held across I/O.
 	mu      sync.Mutex
 	pending map[uint64]chan *rpcResponse
 	nextID  uint64
+	readErr error // set by readLoop on unexpected connection error
 
 	// writeMu serialises concurrent writes to conn without blocking reads or
 	// request-tracking operations.
@@ -59,6 +60,7 @@ type Client struct {
 	subs   []*subscription
 
 	closeOnce sync.Once
+	doneOnce  sync.Once
 	done      chan struct{}
 	wg        sync.WaitGroup
 }
@@ -105,7 +107,7 @@ func Dial(addr string, opts ...Option) (*Client, error) {
 func (c *Client) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
-		close(c.done)
+		c.doneOnce.Do(func() { close(c.done) })
 		err = c.conn.Close()
 
 		// Wake any goroutine blocked in readLoop.
