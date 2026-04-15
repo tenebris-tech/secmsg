@@ -194,6 +194,51 @@ func (c *Client) Unlink(ctx context.Context, account string) error {
 	return c.call(ctx, schema.MethodUnlink, params, nil)
 }
 
+// stealthSetParams is the wire payload for stealth.set.
+type stealthSetParams struct {
+	Account string `json:"account"`
+	Enabled bool   `json:"enabled"`
+}
+
+// stealthSetResult is the wire response for stealth.set.
+type stealthSetResult struct {
+	Account string `json:"account"`
+	Stealth bool   `json:"stealth"`
+}
+
+// stealthStatusParams is the wire payload for stealth.status.
+type stealthStatusParams struct {
+	Account string `json:"account"`
+}
+
+// stealthStatusResult is the wire response for stealth.status.
+type stealthStatusResult struct {
+	Account        string `json:"account"`
+	GlobalStealth  bool   `json:"global_stealth"`
+	AccountStealth bool   `json:"account_stealth"`
+	Active         bool   `json:"active"`
+}
+
+// StealthSet enables or disables stealth mode for the given account.
+func (c *Client) StealthSet(ctx context.Context, account string, enabled bool) (*stealthSetResult, error) {
+	params := stealthSetParams{Account: account, Enabled: enabled}
+	var result stealthSetResult
+	if err := c.call(ctx, schema.MethodStealthSet, params, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// StealthStatus returns the current stealth mode status for the given account.
+func (c *Client) StealthStatus(ctx context.Context, account string) (*stealthStatusResult, error) {
+	params := stealthStatusParams{Account: account}
+	var result stealthStatusResult
+	if err := c.call(ctx, schema.MethodStealthStatus, params, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // Subscribe sends the subscribe RPC to sigd to register this connection for
 // push notifications, then returns a channel on which incoming notifications
 // are delivered. The caller must call the returned cancel function to release

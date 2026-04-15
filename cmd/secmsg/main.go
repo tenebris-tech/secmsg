@@ -253,6 +253,52 @@ func main() {
 		}
 		fmt.Fprintln(os.Stderr, "Connection closed.")
 
+	case "stealth-enable":
+		// stealth-enable <account>
+		if len(rest) < 1 {
+			fatalf("usage: stealth-enable <account>")
+		}
+		result, err := c.StealthSet(ctx, rest[0], true)
+		if err != nil {
+			fatalf("stealth-enable: %v", err)
+		}
+		if *asJSON {
+			printJSON(result)
+		} else {
+			fmt.Printf("stealth: %v\n", result.Stealth)
+		}
+
+	case "stealth-disable":
+		// stealth-disable <account>
+		if len(rest) < 1 {
+			fatalf("usage: stealth-disable <account>")
+		}
+		result, err := c.StealthSet(ctx, rest[0], false)
+		if err != nil {
+			fatalf("stealth-disable: %v", err)
+		}
+		if *asJSON {
+			printJSON(result)
+		} else {
+			fmt.Printf("stealth: %v\n", result.Stealth)
+		}
+
+	case "stealth-status":
+		// stealth-status <account>
+		if len(rest) < 1 {
+			fatalf("usage: stealth-status <account>")
+		}
+		result, err := c.StealthStatus(ctx, rest[0])
+		if err != nil {
+			fatalf("stealth-status: %v", err)
+		}
+		if *asJSON {
+			printJSON(result)
+		} else {
+			fmt.Printf("account: %s  global_stealth: %v  account_stealth: %v  active: %v\n",
+				result.Account, result.GlobalStealth, result.AccountStealth, result.Active)
+		}
+
 	default:
 		fatalf("unknown command %q (use -help for usage)", cmd)
 	}
@@ -364,18 +410,21 @@ Flags:
   -debug         enable debug logging to /tmp/secmsg.log
 
 Commands:
-  send          <account> <to> <message>
-  send-group    <account> <groupId> <message>
-  contacts      <account>
-  groups        <account>
-  receipt-read  <account> <to> <timestamp> [<timestamp>...]
-  typing        <account> <to> <true|false>
-  link          <account> <name>
-  link-status   <account>
-  poll-link     <account>
-  status        [account]
-  unlink        <account>
+  send           <account> <to> <message>
+  send-group     <account> <groupId> <message>
+  contacts       <account>
+  groups         <account>
+  receipt-read   <account> <to> <timestamp> [<timestamp>...]
+  typing         <account> <to> <true|false>
+  link           <account> <name>
+  link-status    <account>
+  poll-link      <account>
+  status         [account]
+  unlink         <account>
   subscribe
+  stealth-enable  <account>
+  stealth-disable <account>
+  stealth-status  <account>
   version
   help
 `, global.AppName, global.AppVersion, client.DefaultAddr)

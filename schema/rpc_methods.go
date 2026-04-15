@@ -16,4 +16,7 @@ const (
 	// and uses them as server-side RPC method names.
 	MethodReceive   = "receive"
 	MethodSubscribe = "subscribe"
+
+	MethodStealthSet    = "stealth.set"
+	MethodStealthStatus = "stealth.status"
 )

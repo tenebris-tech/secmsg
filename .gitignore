@@ -19,3 +19,5 @@ private/
 .vscode/
 .idea/
 
+#
+secmsg
