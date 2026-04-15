@@ -243,6 +243,7 @@ func main() {
 			fatalf("subscribe: %v", err)
 		}
 		defer cancel()
+		fmt.Printf("%s %s — waiting for messages\n\n", global.AppName, global.AppVersion)
 		for env := range ch {
 			if *asJSON {
 				printJSON(env)
