@@ -238,7 +238,10 @@ func main() {
 
 	case "subscribe":
 		// subscribe — subscribe to notifications and print them.
-		ch, cancel := c.Subscribe()
+		ch, cancel, err := c.Subscribe(ctx)
+		if err != nil {
+			fatalf("subscribe: %v", err)
+		}
 		defer cancel()
 		for env := range ch {
 			if *asJSON {

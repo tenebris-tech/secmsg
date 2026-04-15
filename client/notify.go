@@ -26,13 +26,10 @@ func (s *subscription) close() {
 	})
 }
 
-// Subscribe returns a channel on which incoming notifications are delivered as
-// *schema.Envelope values.  The caller must call the returned cancel function
-// to release resources when it no longer needs notifications.
-//
-// The channel has a small buffer; if the consumer is slow, individual
-// notifications may be dropped rather than blocking the read loop.
-func (c *Client) Subscribe() (<-chan *schema.Envelope, func()) {
+// localSubscribe registers a local channel to receive dispatched notifications.
+// It is used by Subscribe to set up the channel before sending the RPC so that
+// notifications arriving immediately after the ack are not lost.
+func (c *Client) localSubscribe() (<-chan *schema.Envelope, func()) {
 	sub := &subscription{
 		ch:   make(chan *schema.Envelope, 16),
 		done: make(chan struct{}),

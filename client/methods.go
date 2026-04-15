@@ -6,6 +6,17 @@ import (
 	"github.com/tenebris-tech/secmsg/schema"
 )
 
+// subscribeParams is the wire payload for the subscribe RPC request.
+type subscribeParams struct {
+	Accounts []string `json:"accounts,omitempty"`
+}
+
+// subscribeResult is the wire response for the subscribe RPC request.
+type subscribeResult struct {
+	Subscribed bool     `json:"subscribed"`
+	Accounts   []string `json:"accounts,omitempty"`
+}
+
 // sendMessageParams is the wire payload for sending a 1:1 message.
 type sendMessageParams struct {
 	Service string `json:"service"`
@@ -181,4 +192,29 @@ func (c *Client) StatusAll(ctx context.Context) (*schema.StatusAllReply, error) 
 func (c *Client) Unlink(ctx context.Context, account string) error {
 	params := unlinkParams{Account: account}
 	return c.call(ctx, schema.MethodUnlink, params, nil)
+}
+
+// Subscribe sends the subscribe RPC to sigd to register this connection for
+// push notifications, then returns a channel on which incoming notifications
+// are delivered. The caller must call the returned cancel function to release
+// resources when it no longer needs notifications.
+//
+// accounts is an optional filter; pass no arguments to receive notifications
+// for all linked accounts.
+//
+// The local channel is registered before the RPC is sent so that notifications
+// arriving immediately after the ack are not lost.
+func (c *Client) Subscribe(ctx context.Context, accounts ...string) (<-chan *schema.Envelope, func(), error) {
+	// Register the local channel first so no notifications are missed between
+	// the ack and the caller entering the receive loop.
+	ch, cancelLocal := c.localSubscribe()
+
+	params := subscribeParams{Accounts: accounts}
+	var result subscribeResult
+	if err := c.call(ctx, schema.MethodSubscribe, params, &result); err != nil {
+		cancelLocal()
+		return nil, nil, err
+	}
+
+	return ch, cancelLocal, nil
 }
