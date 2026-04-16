@@ -160,6 +160,14 @@ func main() {
 				fmt.Println()
 			}
 		}
+		if reply.Status == schema.LinkStatusPending {
+			fmt.Println("Waiting for link to complete...")
+			pollCtx, pollCancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer pollCancel()
+			if err := pollLinkStatus(pollCtx, c, rest[0], *asJSON); err != nil {
+				fatalf("link: %v", err)
+			}
+		}
 
 	case "link-status":
 		if len(rest) < 1 {
@@ -316,28 +324,46 @@ func printStatusRow(s schema.StatusReply) {
 	fmt.Println()
 }
 
-// pollLinkStatus polls link.status once per second until the link is complete
-// or has errored.
 func pollLinkStatus(ctx context.Context, c *client.Client, account string, asJSON bool) error {
 	for {
 		reply, err := c.LinkStatus(ctx, account)
 		if err != nil {
+			if ctx.Err() != nil {
+				fmt.Fprintln(os.Stderr, "Timed out waiting for link to complete.")
+				return nil
+			}
 			return err
 		}
 		if asJSON {
 			printJSON(reply)
 		} else {
 			fmt.Printf("status: %s", reply.Status)
-			if reply.URI != "" {
-				fmt.Printf("  uri: %s", reply.URI)
+			if reply.ACI != "" {
+				fmt.Printf("  aci: %s", reply.ACI)
+			}
+			if reply.Phone != "" {
+				fmt.Printf("  phone: %s", reply.Phone)
+			}
+			if reply.Error != "" {
+				fmt.Printf("  error: %s", reply.Error)
 			}
 			fmt.Println()
 		}
 		switch reply.Status {
-		case schema.LinkStatusComplete, schema.LinkStatusError:
+		case schema.LinkStatusComplete:
+			fmt.Println("Link successful.")
+			return nil
+		case schema.LinkStatusError:
+			fmt.Fprintln(os.Stderr, "Link failed.")
 			return nil
 		}
-		time.Sleep(time.Second)
+
+		select {
+		case <-ctx.Done():
+			fmt.Fprintln(os.Stderr, "Timed out waiting for link to complete.")
+			return nil
+		case <-time.After(2 * time.Second):
+		}
 	}
 }
 
