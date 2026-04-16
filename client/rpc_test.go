@@ -171,10 +171,16 @@ func TestSubscribeAndDispatch(t *testing.T) {
 		}
 		defer conn.Close()
 		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"%s"}`+"\n", schema.MethodHello)
-		// Give the client a moment to subscribe, then send a notification.
+		scanner := bufio.NewScanner(conn)
+		if scanner.Scan() {
+			var req rpcRequest
+			if err := json.Unmarshal([]byte(scanner.Text()), &req); err == nil {
+				resp, _ := json.Marshal(rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: json.RawMessage(`{"ok":true}`)})
+				fmt.Fprintf(conn, "%s\n", resp)
+			}
+		}
 		<-notifSent
 		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"%s","params":{"body":"hi"}}`+"\n", schema.MethodMessage)
-		// Keep connection open until the test signals completion.
 		<-serverDone
 	}()
 
@@ -184,7 +190,10 @@ func TestSubscribeAndDispatch(t *testing.T) {
 	}
 	defer c.Close()
 
-	ch, cancel := c.Subscribe()
+	ch, cancel, err := c.Subscribe(context.Background())
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
 	defer cancel()
 	defer close(serverDone)
 
@@ -216,9 +225,14 @@ func TestSubscribeCancelNoPanic(t *testing.T) {
 		}
 		defer conn.Close()
 		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"%s"}`+"\n", schema.MethodHello)
-		// Blast many notifications. The goroutine exits immediately after,
-		// causing the server-side connection to close and the client's readLoop
-		// to see EOF once all buffered notifications are consumed.
+		scanner := bufio.NewScanner(conn)
+		if scanner.Scan() {
+			var req rpcRequest
+			if err := json.Unmarshal([]byte(scanner.Text()), &req); err == nil {
+				resp, _ := json.Marshal(rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: json.RawMessage(`{"ok":true}`)})
+				fmt.Fprintf(conn, "%s\n", resp)
+			}
+		}
 		for i := 0; i < 100; i++ {
 			fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"%s","params":{}}`+"\n", schema.MethodMessage)
 		}
@@ -229,8 +243,10 @@ func TestSubscribeCancelNoPanic(t *testing.T) {
 		t.Fatalf("Dial: %v", err)
 	}
 
-	_, cancel := c.Subscribe()
-	// Cancel immediately — dispatch should not panic.
+	_, cancel, err := c.Subscribe(context.Background())
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
 	cancel()
 
 	// Wait for the read loop to finish processing all buffered notifications.
