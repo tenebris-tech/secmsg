@@ -244,9 +244,30 @@ func main() {
 		}
 		fmt.Println("Account unlinked.")
 
+	case "receive":
+		// receive [account] — poll for queued messages.
+		account := ""
+		if len(rest) > 0 {
+			account = rest[0]
+		}
+		// Use a longer context for the long-poll receive call.
+		recvCtx, recvCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer recvCancel()
+		messages, err := c.Receive(recvCtx, account, 30)
+		if err != nil {
+			fatalf("receive: %v", err)
+		}
+		for _, env := range messages {
+			if *asJSON {
+				printJSON(env)
+			} else {
+				printEnvelope(env)
+			}
+		}
+
 	case "subscribe":
-		// subscribe — subscribe to notifications and print them.
-		ch, cancel, err := c.Subscribe(ctx)
+		// subscribe [account ...] — subscribe to notifications and print them.
+		ch, cancel, err := c.Subscribe(ctx, rest...)
 		if err != nil {
 			fatalf("subscribe: %v", err)
 		}
@@ -256,7 +277,7 @@ func main() {
 			if *asJSON {
 				printJSON(env)
 			} else {
-				fmt.Printf("method=%s params=%s\n", env.Method, env.Params)
+				printEnvelope(*env)
 			}
 		}
 		fmt.Fprintln(os.Stderr, "Connection closed.")
@@ -322,6 +343,47 @@ func printStatusRow(s schema.StatusReply) {
 		fmt.Printf("  phone: %s", phone)
 	}
 	fmt.Println()
+}
+
+// printEnvelope renders a notification envelope to stdout with an optional
+// account prefix. For message notifications the output includes sender and body;
+// other types fall back to method=... params=... format.
+func printEnvelope(env schema.Envelope) {
+	// Try to extract the account field from the raw params for the prefix.
+	var acct struct {
+		Account string `json:"account"`
+	}
+	_ = json.Unmarshal(env.Params, &acct)
+	prefix := ""
+	if acct.Account != "" {
+		prefix = "[" + acct.Account + "] "
+	}
+
+	switch env.Method {
+	case schema.MethodMessage:
+		var msg schema.MessageParams
+		if err := json.Unmarshal(env.Params, &msg); err != nil {
+			fmt.Printf("%smethod=%s params=%s\n", prefix, env.Method, env.Params)
+			return
+		}
+		fmt.Printf("%s%s from:%s body:%s\n", prefix, msg.Type, msg.From.ID, msg.Body)
+	case schema.MethodReceipt:
+		var r schema.ReceiptParams
+		if err := json.Unmarshal(env.Params, &r); err != nil {
+			fmt.Printf("%smethod=%s params=%s\n", prefix, env.Method, env.Params)
+			return
+		}
+		fmt.Printf("%sreceipt %s from:%s\n", prefix, r.Type, r.From.ID)
+	case schema.MethodTyping:
+		var t schema.TypingParams
+		if err := json.Unmarshal(env.Params, &t); err != nil {
+			fmt.Printf("%smethod=%s params=%s\n", prefix, env.Method, env.Params)
+			return
+		}
+		fmt.Printf("%styping %s from:%s\n", prefix, t.Action, t.From.ID)
+	default:
+		fmt.Printf("%smethod=%s params=%s\n", prefix, env.Method, env.Params)
+	}
 }
 
 func pollLinkStatus(ctx context.Context, c *client.Client, account string, asJSON bool) error {
@@ -447,7 +509,8 @@ Commands:
   poll-link      <account>
   status         [account]
   unlink         <account>
-  subscribe
+  receive        [account]
+  subscribe      [account ...]
   stealth-enable  <account>
   stealth-disable <account>
   stealth-status  <account>
