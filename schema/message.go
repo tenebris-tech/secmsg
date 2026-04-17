@@ -22,5 +22,6 @@ type MessageParams struct {
 	Timestamp   uint64       `json:"timestamp"`
 	Ref         uint64       `json:"ref,omitempty"`
 	Body        string       `json:"body,omitempty"`
+	ViewOnce    bool         `json:"view_once,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
 }
