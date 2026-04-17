@@ -7,7 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
@@ -15,6 +17,12 @@ import (
 	"github.com/tenebris-tech/secmsg/client"
 	"github.com/tenebris-tech/secmsg/global"
 	"github.com/tenebris-tech/secmsg/schema"
+)
+
+const (
+	defaultReceiveTimeoutSec = 30
+	// Client-side context timeout: server timeout + generous margin for network.
+	receiveContextTimeout = 2 * defaultReceiveTimeoutSec * time.Second
 )
 
 func main() {
@@ -250,10 +258,12 @@ func main() {
 		if len(rest) > 0 {
 			account = rest[0]
 		}
-		// Use a longer context for the long-poll receive call.
-		recvCtx, recvCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		// Use a signal-aware context with a generous timeout for the long-poll receive call.
+		recvCtx, recvStop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer recvStop()
+		recvCtx, recvCancel := context.WithTimeout(recvCtx, receiveContextTimeout)
 		defer recvCancel()
-		messages, err := c.Receive(recvCtx, account, 30)
+		messages, err := c.Receive(recvCtx, account, defaultReceiveTimeoutSec)
 		if err != nil {
 			fatalf("receive: %v", err)
 		}
@@ -261,23 +271,28 @@ func main() {
 			if *asJSON {
 				printJSON(env)
 			} else {
-				printEnvelope(env)
+				printEnvelope(&env)
 			}
+		}
+		if len(messages) == 0 {
+			fmt.Fprintln(os.Stderr, "No messages.")
 		}
 
 	case "subscribe":
 		// subscribe [account ...] — subscribe to notifications and print them.
-		ch, cancel, err := c.Subscribe(ctx, rest...)
+		subCtx, subStop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer subStop()
+		ch, subCancel, err := c.Subscribe(subCtx, rest...)
 		if err != nil {
 			fatalf("subscribe: %v", err)
 		}
-		defer cancel()
+		defer subCancel()
 		fmt.Printf("%s %s — waiting for messages\n\n", global.AppName, global.AppVersion)
 		for env := range ch {
 			if *asJSON {
 				printJSON(env)
 			} else {
-				printEnvelope(*env)
+				printEnvelope(env)
 			}
 		}
 		fmt.Fprintln(os.Stderr, "Connection closed.")
@@ -348,7 +363,7 @@ func printStatusRow(s schema.StatusReply) {
 // printEnvelope renders a notification envelope to stdout with an optional
 // account prefix. For message notifications the output includes sender and body;
 // other types fall back to method=... params=... format.
-func printEnvelope(env schema.Envelope) {
+func printEnvelope(env *schema.Envelope) {
 	// Try to extract the account field from the raw params for the prefix.
 	var acct struct {
 		Account string `json:"account"`
