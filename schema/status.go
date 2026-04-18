@@ -7,7 +7,7 @@ type StatusReply struct {
 	Linked      bool              `json:"linked"`
 	Connected   bool              `json:"connected"`
 	Account     string            `json:"account"`
-	Stealth     bool              `json:"stealth,omitempty"`
+	Stealth     bool              `json:"stealth"`
 	Identifiers map[string]string `json:"identifiers,omitempty"`
 }
 
