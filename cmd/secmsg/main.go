@@ -7,7 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
@@ -15,6 +17,12 @@ import (
 	"github.com/tenebris-tech/secmsg/client"
 	"github.com/tenebris-tech/secmsg/global"
 	"github.com/tenebris-tech/secmsg/schema"
+)
+
+const (
+	defaultReceiveTimeoutSec = 30
+	// Client-side context timeout: server timeout + generous margin for network.
+	receiveContextTimeout = 2 * defaultReceiveTimeoutSec * time.Second
 )
 
 func main() {
@@ -244,22 +252,59 @@ func main() {
 		}
 		fmt.Println("Account unlinked.")
 
-	case "subscribe":
-		// subscribe — subscribe to notifications and print them.
-		ch, cancel, err := c.Subscribe(ctx)
-		if err != nil {
-			fatalf("subscribe: %v", err)
+	case "receive":
+		// receive [account] — poll for queued messages.
+		account := ""
+		if len(rest) > 0 {
+			account = rest[0]
 		}
-		defer cancel()
-		fmt.Printf("%s %s — waiting for messages\n\n", global.AppName, global.AppVersion)
-		for env := range ch {
+		// Use a signal-aware context with a generous timeout for the long-poll receive call.
+		recvCtx, recvStop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer recvStop()
+		recvCtx, recvCancel := context.WithTimeout(recvCtx, receiveContextTimeout)
+		defer recvCancel()
+		messages, err := c.Receive(recvCtx, account, defaultReceiveTimeoutSec)
+		if err != nil {
+			fatalf("receive: %v", err)
+		}
+		for _, env := range messages {
 			if *asJSON {
 				printJSON(env)
 			} else {
-				fmt.Printf("method=%s params=%s\n", env.Method, env.Params)
+				printEnvelope(&env)
 			}
 		}
-		fmt.Fprintln(os.Stderr, "Connection closed.")
+		if len(messages) == 0 {
+			fmt.Fprintln(os.Stderr, "No messages.")
+		}
+
+	case "subscribe":
+		// subscribe [account ...] — subscribe to notifications and print them.
+		subCtx, subStop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer subStop()
+		ch, subCancel, err := c.Subscribe(subCtx, rest...)
+		if err != nil {
+			fatalf("subscribe: %v", err)
+		}
+		defer subCancel()
+		fmt.Printf("%s %s — waiting for messages\n\n", global.AppName, global.AppVersion)
+		for {
+			select {
+			case env, ok := <-ch:
+				if !ok {
+					fmt.Fprintln(os.Stderr, "Connection closed.")
+					return
+				}
+				if *asJSON {
+					printJSON(env)
+				} else {
+					printEnvelope(env)
+				}
+			case <-subCtx.Done():
+				fmt.Fprintln(os.Stderr, "\nExiting.")
+				return
+			}
+		}
 
 	case "stealth-enable":
 		// stealth-enable <account>
@@ -314,7 +359,7 @@ func main() {
 
 // printStatusRow renders one account row from a status reply.
 func printStatusRow(s schema.StatusReply) {
-	fmt.Printf("account: %s  linked: %v  connected: %v", s.Account, s.Linked, s.Connected)
+	fmt.Printf("account: %s  linked: %v  connected: %v  stealth: %v", s.Account, s.Linked, s.Connected, s.Stealth)
 	if aci := s.Identifiers["aci"]; aci != "" {
 		fmt.Printf("  aci: %s", aci)
 	}
@@ -322,6 +367,55 @@ func printStatusRow(s schema.StatusReply) {
 		fmt.Printf("  phone: %s", phone)
 	}
 	fmt.Println()
+}
+
+// printEnvelope renders a notification envelope to stdout with an optional
+// account prefix. For message notifications the output includes sender and body;
+// other types fall back to method=... params=... format.
+func printEnvelope(env *schema.Envelope) {
+	// Try to extract the account field from the raw params for the prefix.
+	var acct struct {
+		Account string `json:"account"`
+	}
+	_ = json.Unmarshal(env.Params, &acct)
+	prefix := ""
+	if acct.Account != "" {
+		prefix = "[" + acct.Account + "] "
+	}
+
+	switch env.Method {
+	case schema.MethodMessage:
+		var msg schema.MessageParams
+		if err := json.Unmarshal(env.Params, &msg); err != nil {
+			fmt.Printf("%smethod=%s params=%s\n", prefix, env.Method, env.Params)
+			return
+		}
+		viewOnce := ""
+		if msg.ViewOnce {
+			viewOnce = "[VIEW ONCE] "
+		}
+		fmt.Printf("%s%s from:%q to:%q %sbody:%q\n", prefix, msg.Type, formatParty(msg.From), formatParty(msg.To), viewOnce, msg.Body)
+	case schema.MethodReceipt:
+		var r schema.ReceiptParams
+		if err := json.Unmarshal(env.Params, &r); err != nil {
+			fmt.Printf("%smethod=%s params=%s\n", prefix, env.Method, env.Params)
+			return
+		}
+		fmt.Printf("%sreceipt %s from:%q to:%q\n", prefix, r.Type, formatParty(r.From), formatParty(r.To))
+	case schema.MethodTyping:
+		var t schema.TypingParams
+		if err := json.Unmarshal(env.Params, &t); err != nil {
+			fmt.Printf("%smethod=%s params=%s\n", prefix, env.Method, env.Params)
+			return
+		}
+		fmt.Printf("%styping %s from:%q to:%q\n", prefix, t.Action, formatParty(t.From), formatParty(t.To))
+	default:
+		fmt.Printf("%smethod=%s params=%s\n", prefix, env.Method, env.Params)
+	}
+}
+
+func formatParty(p schema.Party) string {
+	return p.Format()
 }
 
 func pollLinkStatus(ctx context.Context, c *client.Client, account string, asJSON bool) error {
@@ -447,7 +541,8 @@ Commands:
   poll-link      <account>
   status         [account]
   unlink         <account>
-  subscribe
+  receive        [account]
+  subscribe      [account ...]
   stealth-enable  <account>
   stealth-disable <account>
   stealth-status  <account>

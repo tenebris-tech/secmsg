@@ -239,6 +239,29 @@ func (c *Client) StealthStatus(ctx context.Context, account string) (*stealthSta
 	return &result, nil
 }
 
+// receiveParams is the wire payload for the receive RPC request.
+type receiveParams struct {
+	Account string `json:"account,omitempty"`
+	Timeout int    `json:"timeout,omitempty"`
+}
+
+// receiveResult is the wire response for the receive RPC request.
+type receiveResult struct {
+	Messages []schema.Envelope `json:"messages"`
+}
+
+// Receive polls sigd for queued messages. If account is non-empty only that
+// account is polled; otherwise all accounts are polled. Timeout is the
+// server-side long-poll duration in seconds (0 uses server default).
+func (c *Client) Receive(ctx context.Context, account string, timeout int) ([]schema.Envelope, error) {
+	params := receiveParams{Account: account, Timeout: timeout}
+	var result receiveResult
+	if err := c.call(ctx, schema.MethodReceive, params, &result); err != nil {
+		return nil, err
+	}
+	return result.Messages, nil
+}
+
 // Subscribe sends the subscribe RPC to sigd to register this connection for
 // push notifications, then returns a channel on which incoming notifications
 // are delivered. The caller must call the returned cancel function to release
