@@ -394,36 +394,28 @@ func printEnvelope(env *schema.Envelope) {
 		if msg.ViewOnce {
 			viewOnce = "[VIEW ONCE] "
 		}
-		fmt.Printf("%s%s from:%s %sbody:%s\n", prefix, msg.Type, formatParty(msg.From), viewOnce, msg.Body)
+		fmt.Printf("%s%s from:%q to:%q %sbody:%q\n", prefix, msg.Type, formatParty(msg.From), formatParty(msg.To), viewOnce, msg.Body)
 	case schema.MethodReceipt:
 		var r schema.ReceiptParams
 		if err := json.Unmarshal(env.Params, &r); err != nil {
 			fmt.Printf("%smethod=%s params=%s\n", prefix, env.Method, env.Params)
 			return
 		}
-		fmt.Printf("%sreceipt %s from:%s\n", prefix, r.Type, formatParty(r.From))
+		fmt.Printf("%sreceipt %s from:%q to:%q\n", prefix, r.Type, formatParty(r.From), formatParty(r.To))
 	case schema.MethodTyping:
 		var t schema.TypingParams
 		if err := json.Unmarshal(env.Params, &t); err != nil {
 			fmt.Printf("%smethod=%s params=%s\n", prefix, env.Method, env.Params)
 			return
 		}
-		fmt.Printf("%styping %s from:%s\n", prefix, t.Action, formatParty(t.From))
+		fmt.Printf("%styping %s from:%q to:%q\n", prefix, t.Action, formatParty(t.From), formatParty(t.To))
 	default:
 		fmt.Printf("%smethod=%s params=%s\n", prefix, env.Method, env.Params)
 	}
 }
 
-// formatParty renders a Party as Name[device]ID when name and device are
-// available, falling back to just the ID.
 func formatParty(p schema.Party) string {
-	if p.Name != "" && p.Device != 0 {
-		return fmt.Sprintf("%s[%d]%s", p.Name, p.Device, p.ID)
-	}
-	if p.Name != "" {
-		return fmt.Sprintf("%s[]%s", p.Name, p.ID)
-	}
-	return p.ID
+	return p.Format()
 }
 
 func pollLinkStatus(ctx context.Context, c *client.Client, account string, asJSON bool) error {
