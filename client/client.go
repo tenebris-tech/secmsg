@@ -108,6 +108,10 @@ func (c *Client) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
 		c.doneOnce.Do(func() { close(c.done) })
+		// Set an immediate read deadline to unblock any goroutine blocked in
+		// readLoop before closing the connection.  On some platforms conn.Close
+		// alone does not reliably interrupt a pending buffered read.
+		c.conn.SetReadDeadline(time.Now())
 		err = c.conn.Close()
 
 		// Wake any goroutine blocked in readLoop.
