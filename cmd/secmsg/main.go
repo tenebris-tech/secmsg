@@ -253,28 +253,43 @@ func main() {
 		fmt.Println("Account unlinked.")
 
 	case "receive":
-		// receive [account] — poll for queued messages.
+		recvFlags := flag.NewFlagSet("receive", flag.ExitOnError)
+		drain := recvFlags.Bool("drain", false, "keep fetching until no more messages are queued")
+		_ = recvFlags.Parse(rest)
 		account := ""
-		if len(rest) > 0 {
-			account = rest[0]
+		if recvFlags.NArg() > 0 {
+			account = recvFlags.Arg(0)
 		}
-		// Use a signal-aware context with a generous timeout for the long-poll receive call.
-		recvCtx, recvStop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer recvStop()
-		recvCtx, recvCancel := context.WithTimeout(recvCtx, receiveContextTimeout)
-		defer recvCancel()
-		messages, err := c.Receive(recvCtx, account, defaultReceiveTimeoutSec)
-		if err != nil {
-			fatalf("receive: %v", err)
-		}
-		for _, env := range messages {
-			if *asJSON {
-				printJSON(env)
-			} else {
-				printEnvelope(&env)
+
+		sigCtx, sigStop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer sigStop()
+
+		total := 0
+		timeout := defaultReceiveTimeoutSec
+		for {
+			callCtx, callCancel := context.WithTimeout(sigCtx, receiveContextTimeout)
+			messages, more, err := c.Receive(callCtx, account, timeout, 0)
+			callCancel()
+			if err != nil {
+				if sigCtx.Err() != nil {
+					break
+				}
+				fatalf("receive: %v", err)
 			}
+			for _, env := range messages {
+				if *asJSON {
+					printJSON(env)
+				} else {
+					printEnvelope(&env)
+				}
+			}
+			total += len(messages)
+			if !more || !*drain {
+				break
+			}
+			timeout = 0
 		}
-		if len(messages) == 0 {
+		if total == 0 {
 			fmt.Fprintln(os.Stderr, "No messages.")
 		}
 
@@ -541,7 +556,7 @@ Commands:
   poll-link      <account>
   status         [account]
   unlink         <account>
-  receive        [account]
+  receive        [-drain] [account]
   subscribe      [account ...]
   stealth-enable  <account>
   stealth-disable <account>

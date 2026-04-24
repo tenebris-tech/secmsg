@@ -243,23 +243,27 @@ func (c *Client) StealthStatus(ctx context.Context, account string) (*stealthSta
 type receiveParams struct {
 	Account string `json:"account,omitempty"`
 	Timeout int    `json:"timeout,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
 }
 
 // receiveResult is the wire response for the receive RPC request.
 type receiveResult struct {
 	Messages []schema.Envelope `json:"messages"`
+	More     bool              `json:"more"`
 }
 
 // Receive polls sigd for queued messages. If account is non-empty only that
 // account is polled; otherwise all accounts are polled. Timeout is the
 // server-side long-poll duration in seconds (0 uses server default).
-func (c *Client) Receive(ctx context.Context, account string, timeout int) ([]schema.Envelope, error) {
-	params := receiveParams{Account: account, Timeout: timeout}
+// Limit caps the number of messages returned per call (0 uses server default).
+// The returned bool indicates whether more messages remain queued.
+func (c *Client) Receive(ctx context.Context, account string, timeout, limit int) ([]schema.Envelope, bool, error) {
+	params := receiveParams{Account: account, Timeout: timeout, Limit: limit}
 	var result receiveResult
 	if err := c.call(ctx, schema.MethodReceive, params, &result); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return result.Messages, nil
+	return result.Messages, result.More, nil
 }
 
 // Subscribe sends the subscribe RPC to sigd to register this connection for
