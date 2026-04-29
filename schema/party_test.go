@@ -15,7 +15,10 @@ func TestPartyFormat(t *testing.T) {
 		{Party{ID: "d0944716-81b3-4d85-8e9d-b4ca041220da", Device: 1}, "d0944716-81b3-4d85-8e9d-b4ca041220da[1]"},
 		{Party{Name: "Eric"}, "[]Eric"},
 		{Party{Name: "Eric", Device: 4}, "[4]Eric"},
-		{Party{}, "self"},
+		{Party{}, ""},
+		{Party{Self: true}, "me"},
+		{Party{Self: true, Device: 3}, "me[3]"},
+		{Party{Self: true, ID: "15a636b9-1c74-4305-bb62-f92c14bbb0a5", Device: 2}, "me[2]"},
 	}
 	for _, tc := range tests {
 		got := tc.p.Format()
