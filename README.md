@@ -489,6 +489,9 @@ Incoming text message, edit, retract, or outbound-sync copy (message sent from a
 | `text` | New message |
 | `edit` | Edit of a previous message; `ref` contains the original timestamp |
 | `retract` | Delete-for-everyone; `ref` contains the original timestamp |
+| `reaction.add` | Emoji reaction added; `body` is the emoji, `ref` is the target message timestamp, `ref_author` is the target message author ACI |
+| `reaction.remove` | Emoji reaction removed; same fields as `reaction.add` |
+| `sticker` | Sticker message; `body` contains the sticker pack identifier |
 
 **Party fields (`from` / `to`):**
 
@@ -500,8 +503,9 @@ Incoming text message, edit, retract, or outbound-sync copy (message sent from a
 | `about` | Bio text |
 | `about_emoji` | Profile emoji |
 | `avatar` | CDN path or local path when avatar download is enabled |
+| `self` | `true` when this party is the local account; omitted otherwise |
 
-**Outbound sync** (sent from another linked device): `from.id` is your own ACI, `to` is the recipient.
+**Outbound sync** (sent from another linked device): `from.self` is `true`, `to` is the recipient.
 
 ---
 

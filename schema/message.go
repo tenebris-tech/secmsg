@@ -2,11 +2,12 @@ package schema
 
 // Message type values for MessageParams.Type.
 const (
-	MessageTypeText     = "text"
-	MessageTypeEdit     = "edit"
-	MessageTypeRetract  = "retract"
-	MessageTypeReaction = "reaction"
-	MessageTypeSticker  = "sticker"
+	MessageTypeText          = "text"
+	MessageTypeEdit          = "edit"
+	MessageTypeRetract       = "retract"
+	MessageTypeReactionAdd   = "reaction.add"
+	MessageTypeReactionRemove = "reaction.remove"
+	MessageTypeSticker       = "sticker"
 )
 
 // MessageParams is the params payload for a "message" notification.
@@ -14,8 +15,8 @@ const (
 // From is the sender; To is the recipient.
 // For inbound messages From is the remote party and To is our account.
 // For outbound sync messages (copies of messages we sent) From is our account and To is the remote party.
-// Ref is the target message timestamp for edit, retract, and reaction types.
-// RefAuthor is the ACI of the author of the referenced message (reaction only).
+// Ref is the target message timestamp for edit, retract, reaction.add, and reaction.remove types.
+// RefAuthor is the ACI of the author of the referenced message (reaction.add and reaction.remove only).
 type MessageParams struct {
 	Service     string       `json:"service"`
 	Account     string       `json:"account"`
