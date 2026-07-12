@@ -13,7 +13,7 @@ const ProtoVersion = 1
 // AccountIDField describes one identifier key in the account_id_schema.
 // Key is the string key used in an account's identifiers map; Label is a
 // human-readable display name clients can show without hardcoding
-// service-specific field names (e.g. "aci", "phone").
+// service-specific field names (e.g. "user_id", "phone").
 type AccountIDField struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`

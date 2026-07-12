@@ -16,7 +16,7 @@ const (
 // For inbound messages From is the remote party and To is our account.
 // For outbound sync messages (copies of messages we sent) From is our account and To is the remote party.
 // Ref is the target message timestamp for edit, retract, reaction.add, and reaction.remove types.
-// RefAuthor is the ACI of the author of the referenced message (reaction.add and reaction.remove only).
+// RefAuthor is the identifier of the author of the referenced message (reaction.add and reaction.remove only).
 type MessageParams struct {
 	Service     string       `json:"service"`
 	Account     string       `json:"account"`

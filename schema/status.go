@@ -1,7 +1,7 @@
 package schema
 
 // StatusReply is the response for a single-account "status" RPC call.
-// Identifiers contains service-specific fields (e.g. "phone", "aci") as
+// Identifiers contains service-specific fields (e.g. "phone", "user_id") as
 // declared in the daemon's account_id_schema from the hello/info response.
 type StatusReply struct {
 	Linked      bool              `json:"linked"`

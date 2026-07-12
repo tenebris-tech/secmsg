@@ -3,11 +3,21 @@
 > [!WARNING]
 > **This project is a work in progress and should not be used in production.**
 
-A Go client library and CLI for [sigd](https://github.com/tenebris-tech/sigd), the Signal Messenger daemon. Lets you send and receive Signal messages from any application without carrying any Signal or cryptographic code.
+A general-purpose secure messaging interface, Go client library, and CLI. It speaks a compact JSON-RPC 2.0 protocol to a messaging daemon, letting any application send and receive messages without carrying any service-specific or cryptographic code.
 
 ```
-[Signal servers] <--websocket--> [sigd (AGPL)] <--tcp/json-rpc--> [your app (MIT)]
+[messaging backend] <--native protocol--> [daemon] <--tcp/json-rpc--> [your app (MIT)]
 ```
+
+secmsg is not tied to any single messaging service. Any daemon that implements the protocol below can be driven by this library — the daemon advertises its service identifier, capabilities, and account identifier schema in the connection handshake, and the client adapts to whatever it connects to.
+
+## Compatible Daemons
+
+| Daemon | Notes |
+|--------|-------|
+| [sigd](https://github.com/tenebris-tech/sigd) | Signal Messenger daemon (AGPL-3.0). |
+
+Any daemon that implements the JSON-RPC 2.0 protocol described below is compatible.
 
 ## Package Layout
 
@@ -18,11 +28,11 @@ secmsg/
 └── cmd/secmsg/     # Reference CLI
 ```
 
-`schema/` contains only plain Go structs and string constants — no Signal code, no CGO, no network dependencies. Import it in any project that needs to work with sigd notifications.
+`schema/` contains only plain Go structs and string constants — no service-specific code, no CGO, no network dependencies. Import it in any project that needs to work with a compatible daemon's notifications.
 
 ## License
 
-MIT. The `schema/` and `client/` packages may be imported into projects of any license. The sigd daemon itself is AGPL-3.0.
+MIT. The `schema/` and `client/` packages may be imported into projects of any license. Daemon licensing is independent of this library.
 
 ## Building
 
@@ -37,7 +47,7 @@ go install ./cmd/secmsg
 ## CLI Quick Start
 
 ```bash
-# Link sigd to your Signal account (scan the QR code with your phone)
+# Link the daemon to your messaging account (scan the QR code with your phone)
 secmsg link myaccount MyDevice
 secmsg poll-link myaccount
 
@@ -45,7 +55,7 @@ secmsg poll-link myaccount
 secmsg status
 
 # Send a message
-secmsg send myaccount <aci-uuid> "Hello from sigd"
+secmsg send myaccount <recipient-id> "Hello"
 
 # Stream incoming messages
 secmsg subscribe
@@ -56,7 +66,7 @@ secmsg stealth-status myaccount
 secmsg stealth-disable myaccount
 ```
 
-Default sigd address: `127.0.0.1:9801`. Override with `-addr`:
+Default daemon address: `127.0.0.1:9801`. Override with `-addr`:
 
 ```bash
 secmsg -addr 10.0.0.1:9801 status
@@ -68,7 +78,7 @@ secmsg -addr 10.0.0.1:9801 status
 secmsg [flags] <command> [args...]
 
 Flags:
-  -addr string   sigd address (default "127.0.0.1:9801")
+  -addr string   daemon address (default "127.0.0.1:9801")
   -json          output as JSON
   -debug         enable debug logging to /tmp/secmsg.log
 
@@ -96,7 +106,6 @@ Commands:
 
 ```go
 import "github.com/tenebris-tech/secmsg/client"
-import "github.com/tenebris-tech/secmsg/schema"
 
 c, err := client.Dial("127.0.0.1:9801")
 if err != nil { ... }
@@ -104,8 +113,12 @@ defer c.Close()
 
 ctx := context.Background()
 
+// The daemon advertises its service identifier in the connection handshake.
+// Pass it to the send/receive methods; no service name is hardcoded.
+service := c.Service()
+
 // Send a message
-err = c.SendMessage(ctx, schema.ServiceSignal, "myaccount", recipientACI, "Hello")
+err = c.SendMessage(ctx, service, "myaccount", recipientID, "Hello")
 
 // Subscribe to incoming notifications
 ch, cancel, err := c.Subscribe(ctx)
@@ -121,11 +134,37 @@ result, err := c.StealthSet(ctx, "myaccount", true)
 status, err := c.StealthStatus(ctx, "myaccount")
 ```
 
+### Multiple Instances
+
+A `Client` holds no package-level or global state — each one owns its own TCP
+connection, request/response multiplexer, and notification dispatch. An
+application may create as many independent clients as it needs and connect each
+to a different daemon, so a single process can talk to an arbitrary number of
+services that support the protocol concurrently.
+
+```go
+// Connect to several daemons at once; each client is fully independent.
+work, err := client.Dial("127.0.0.1:9801")   // one service
+if err != nil { ... }
+defer work.Close()
+
+personal, err := client.Dial("127.0.0.1:9802") // another service
+if err != nil { ... }
+defer personal.Close()
+
+// Each client reports the service its daemon advertises.
+_ = work.SendMessage(ctx, work.Service(), "acct", to, "from work daemon")
+_ = personal.SendMessage(ctx, personal.Service(), "acct", to, "from personal daemon")
+```
+
+Each client's `Subscribe` returns its own notification channel, so an
+application can fan messages from every connected service into one event loop.
+
 ---
 
 ## Protocol Reference
 
-sigd uses [JSON-RPC 2.0](https://www.jsonrpc.org/specification) over a persistent TCP connection. All messages are newline-delimited JSON — one complete JSON object per line.
+The protocol is [JSON-RPC 2.0](https://www.jsonrpc.org/specification) over a persistent TCP connection. All messages are newline-delimited JSON — one complete JSON object per line. Concrete values in the examples below (service name, identifiers, URIs) are illustrative placeholders; the actual values are reported by the daemon in the handshake.
 
 ### Transport
 
@@ -136,7 +175,7 @@ sigd uses [JSON-RPC 2.0](https://www.jsonrpc.org/specification) over a persisten
 
 ### Connection handshake
 
-Immediately after a client connects, before the client sends any request, the server sends a `hello` notification:
+Immediately after a client connects, before the client sends any request, the server sends a `hello` notification. The client captures this and exposes it via `Client.Info()` / `Client.Service()`:
 
 ```json
 {
@@ -144,14 +183,14 @@ Immediately after a client connects, before the client sends any request, the se
   "method": "hello",
   "params": {
     "proto": 1,
-    "daemon": "sigd",
+    "daemon": "example-daemon",
     "version": "0.3.0",
-    "service": "signal",
+    "service": "example",
     "link_method": "qr",
     "accounts": 1,
     "account_id_schema": [
-      {"key": "aci",   "label": "Account ID"},
-      {"key": "phone", "label": "Phone Number"}
+      {"key": "user_id", "label": "User ID"},
+      {"key": "phone",   "label": "Phone Number"}
     ],
     "capabilities": [
       "send", "send.group", "receive", "subscribe",
@@ -162,7 +201,7 @@ Immediately after a client connects, before the client sends any request, the se
 }
 ```
 
-`capabilities` lists the features this daemon instance supports. Clients should check capabilities before calling optional methods. `attachments.download` is only advertised when `--attachment-dir` is configured.
+`service` is the daemon-defined service identifier. `account_id_schema` describes the identifier keys this daemon uses, so clients can render them without hardcoding service-specific field names. `capabilities` lists the features this daemon instance supports; clients should check capabilities before calling optional methods. `attachments.download` is only advertised when `--attachment-dir` is configured.
 
 ---
 
@@ -178,9 +217,9 @@ Returns the same payload as the `hello` notification. Works even when no account
 
 // Response
 {"jsonrpc":"2.0","id":1,"result":{
-  "proto":1,"daemon":"sigd","version":"0.3.0","service":"signal",
+  "proto":1,"daemon":"example-daemon","version":"0.3.0","service":"example",
   "link_method":"qr","accounts":1,
-  "account_id_schema":[{"key":"aci","label":"Account ID"},{"key":"phone","label":"Phone Number"}],
+  "account_id_schema":[{"key":"user_id","label":"User ID"},{"key":"phone","label":"Phone Number"}],
   "capabilities":["send","receive","subscribe",...]
 }}
 ```
@@ -199,7 +238,7 @@ Lists all linked accounts. Returns an empty list when no accounts are linked.
 {"jsonrpc":"2.0","id":1,"result":{
   "accounts":[{
     "account":"myaccount",
-    "identifiers":{"aci":"3c3b4200-...","phone":"+15551234567"},
+    "identifiers":{"user_id":"3c3b4200-...","phone":"+15551234567"},
     "linked":true,
     "connected":true
   }]
@@ -216,15 +255,15 @@ Returns link and connection state. When `account` is omitted, returns all accoun
 // Single account
 {"jsonrpc":"2.0","id":1,"method":"status","params":{"account":"myaccount"}}
 {"jsonrpc":"2.0","id":1,"result":{
-  "service":"signal","account":"myaccount",
+  "service":"example","account":"myaccount",
   "linked":true,"connected":true,
-  "identifiers":{"aci":"3c3b4200-...","phone":"+15551234567"}
+  "identifiers":{"user_id":"3c3b4200-...","phone":"+15551234567"}
 }}
 
 // All accounts (omit params or pass {})
 {"jsonrpc":"2.0","id":1,"method":"status"}
 {"jsonrpc":"2.0","id":1,"result":{
-  "service":"signal",
+  "service":"example",
   "accounts":[{"account":"myaccount","linked":true,"connected":true,"identifiers":{...}}]
 }}
 ```
@@ -233,14 +272,14 @@ Returns link and connection state. When `account` is omitted, returns all accoun
 
 ### `link.request`
 
-Starts the QR code device linking flow. Returns the `sgnl://linkdevice?...` URI immediately with `status: "pending"`. Poll `link.status` to detect completion.
+Starts the QR code device linking flow. Returns a daemon-specific device-linking URI immediately with `status: "pending"`. Poll `link.status` to detect completion.
 
 ```json
 // Request
 {"jsonrpc":"2.0","id":1,"method":"link.request","params":{"account":"myaccount","name":"MyDevice"}}
 
-// Response — QR URI ready
-{"jsonrpc":"2.0","id":1,"result":{"status":"pending","uri":"sgnl://linkdevice?uuid=..."}}
+// Response — link URI ready
+{"jsonrpc":"2.0","id":1,"result":{"status":"pending","uri":"linkdevice://..."}}
 ```
 
 ---
@@ -258,8 +297,8 @@ Polls for completion of a pending `link.request`. Call repeatedly (e.g. once per
 
 // Linked successfully
 {"jsonrpc":"2.0","id":2,"result":{
-  "status":"complete","service":"signal","account":"myaccount",
-  "aci":"3c3b4200-...","phone":"+15551234567"
+  "status":"complete","service":"example","account":"myaccount",
+  "user_id":"3c3b4200-...","phone":"+15551234567"
 }}
 
 // Failed
@@ -281,7 +320,7 @@ Removes the linked account. The daemon must be restarted to reconnect.
 
 ### `send`
 
-Sends a 1:1 text message. `to` must be an ACI UUID or E.164 phone number (E.164 resolved via local contact store).
+Sends a 1:1 text message. `to` is a user identifier — one of the keys advertised in `account_id_schema` (e.g. a `user_id` UUID or an E.164 phone number resolved via the local contact store).
 
 ```json
 // Request
@@ -297,7 +336,7 @@ Sends a 1:1 text message. `to` must be an ACI UUID or E.164 phone number (E.164 
 
 ### `send.group`
 
-Sends a text message to a Signal group.
+Sends a text message to a group.
 
 ```json
 {"jsonrpc":"2.0","id":1,"method":"send.group","params":{
@@ -350,7 +389,7 @@ Returns all contacts with full profile data (name, about, avatar CDN path).
 {"jsonrpc":"2.0","id":1,"method":"contacts.list"}
 {"jsonrpc":"2.0","id":1,"result":{
   "contacts":[{
-    "aci":"3c3b4200-...","phone":"+15551234567","name":"Alice",
+    "user_id":"3c3b4200-...","phone":"+15551234567","name":"Alice",
     "about":"Hello there","about_emoji":"👋","avatar":"profiles/..."
   }]
 }}
@@ -375,8 +414,8 @@ Returns known groups.
 
 Sends read receipts for one or more message timestamps. Behaviour is controlled by the `send_read_receipts` daemon setting:
 
-- `send_read_receipts: false` (default) — succeeds silently without sending to Signal
-- `send_read_receipts: true` — actually sends to Signal
+- `send_read_receipts: false` (default) — succeeds silently without sending the receipt upstream
+- `send_read_receipts: true` — actually sends the receipt upstream
 - Stealth mode active — returns error `-32005`
 
 ```json
@@ -454,7 +493,7 @@ Sent immediately on every new TCP connection, before any client request.
 ```json
 {
   "jsonrpc":"2.0","method":"hello",
-  "params":{"proto":1,"daemon":"sigd","version":"0.3.0","service":"signal",...}
+  "params":{"proto":1,"daemon":"example-daemon","version":"0.3.0","service":"example",...}
 }
 ```
 
@@ -468,15 +507,15 @@ Incoming text message, edit, retract, or outbound-sync copy (message sent from a
 {
   "jsonrpc":"2.0","method":"message",
   "params":{
-    "service":"signal","account":"myaccount",
-    "from":{"id":"sender-aci","name":"Alice","device":1,"about":"Hello","avatar":"profiles/..."},
-    "to":  {"id":"our-aci","name":"Me"},
+    "service":"example","account":"myaccount",
+    "from":{"id":"sender-id","name":"Alice","device":1,"about":"Hello","avatar":"profiles/..."},
+    "to":  {"id":"self-id","name":"Me"},
     "type":"text",
     "body":"Hello",
     "timestamp":1744000000000,
     "attachments":[{
       "content_type":"image/jpeg","file_name":"photo.jpg","size":45231,
-      "local_path":"/home/user/.sigd/files/1744000000000-photo.jpg"
+      "local_path":"/home/user/.local/files/1744000000000-photo.jpg"
     }]
   }
 }
@@ -489,7 +528,7 @@ Incoming text message, edit, retract, or outbound-sync copy (message sent from a
 | `text` | New message |
 | `edit` | Edit of a previous message; `ref` contains the original timestamp |
 | `retract` | Delete-for-everyone; `ref` contains the original timestamp |
-| `reaction.add` | Emoji reaction added; `body` is the emoji, `ref` is the target message timestamp, `ref_author` is the target message author ACI |
+| `reaction.add` | Emoji reaction added; `body` is the emoji, `ref` is the target message timestamp, `ref_author` is the target message author identifier |
 | `reaction.remove` | Emoji reaction removed; same fields as `reaction.add` |
 | `sticker` | Sticker message; `body` contains the sticker pack identifier |
 
@@ -497,7 +536,7 @@ Incoming text message, edit, retract, or outbound-sync copy (message sent from a
 
 | Field | Description |
 |-------|-------------|
-| `id` | ACI UUID |
+| `id` | User identifier |
 | `name` | Display name (from profile cache or contact store) |
 | `device` | Sender device ID (present on `from` only for inbound messages) |
 | `about` | Bio text |
@@ -517,9 +556,9 @@ Delivery, read, or viewed receipt.
 {
   "jsonrpc":"2.0","method":"receipt",
   "params":{
-    "service":"signal","account":"myaccount",
-    "from":{"id":"sender-aci"},
-    "to":  {"id":"our-aci"},
+    "service":"example","account":"myaccount",
+    "from":{"id":"sender-id"},
+    "to":  {"id":"self-id"},
     "type":"delivery",
     "ref":[1744000000000]
   }
@@ -538,9 +577,9 @@ Typing indicator from a contact.
 {
   "jsonrpc":"2.0","method":"typing",
   "params":{
-    "service":"signal","account":"myaccount",
-    "from":{"id":"sender-aci","name":"Alice"},
-    "to":  {"id":"our-aci"},
+    "service":"example","account":"myaccount",
+    "from":{"id":"sender-id","name":"Alice"},
+    "to":  {"id":"self-id"},
     "action":"started"
   }
 }
@@ -558,8 +597,8 @@ Fired when the user deletes or clears a conversation on another device (DeleteFo
 {
   "jsonrpc":"2.0","method":"conversation.deleted",
   "params":{
-    "service":"signal","account":"myaccount",
-    "peer":"other-party-aci-or-group-id",
+    "service":"example","account":"myaccount",
+    "peer":"other-party-id-or-group-id",
     "is_full_delete":true
   }
 }
@@ -575,10 +614,10 @@ Fired when an attachment has been downloaded and stored locally. Only emitted wh
 {
   "jsonrpc":"2.0","method":"attachment.ready",
   "params":{
-    "service":"signal","account":"myaccount",
+    "service":"example","account":"myaccount",
     "timestamp":1744000000000,
     "index":0,
-    "local_path":"/home/user/.sigd/files/1744000000000-photo.jpg"
+    "local_path":"/home/user/.local/files/1744000000000-photo.jpg"
   }
 }
 ```
@@ -587,7 +626,7 @@ Fired when an attachment has been downloaded and stored locally. Only emitted wh
 
 ### `status`
 
-Connection state change (Signal WebSocket connected or disconnected).
+Connection state change (upstream service connected or disconnected).
 
 ```json
 {"jsonrpc":"2.0","method":"status","params":{"connected":true}}
@@ -604,8 +643,8 @@ Connection state change (Signal WebSocket connected or disconnected).
 | `-32601` | Method not found | Unknown method name |
 | `-32602` | Invalid params | Missing or invalid parameter |
 | `-32000` | Not linked | Operation requires a linked account |
-| `-32001` | Not connected | Operation requires an active Signal connection |
-| `-32002` | Recipient not found | ACI or phone number could not be resolved |
+| `-32001` | Not connected | Operation requires an active upstream connection |
+| `-32002` | Recipient not found | Identifier could not be resolved |
 | `-32003` | Rate limited | Too many requests |
 | `-32004` | Internal error | Unexpected daemon error |
 | `-32005` | Stealth mode | Operation blocked because stealth mode is active |
@@ -618,4 +657,4 @@ Copyright (c) 2026 Tenebris Technologies Inc.
 
 secmsg is licensed under the [MIT License](LICENSE).
 
-The `schema/` and `client/` packages are intentionally kept free of Signal and cryptographic code so they can be imported by projects of any license. The AGPL-3.0 license of the sigd daemon applies only to sigd itself — not to clients that communicate with it over TCP.
+The `schema/` and `client/` packages are intentionally kept free of service-specific and cryptographic code so they can be imported by projects of any license. Daemons that communicate with this library over TCP are licensed independently.

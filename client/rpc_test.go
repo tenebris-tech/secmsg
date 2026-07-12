@@ -76,7 +76,7 @@ func TestCallBasic(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.SendMessage(context.Background(), schema.ServiceSignal, "myaccount", "+15550001111", "hello"); err != nil {
+	if err := c.SendMessage(context.Background(), "example", "myaccount", "+15550001111", "hello"); err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
 }
@@ -99,7 +99,7 @@ func TestConcurrentCalls(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := c.SendMessage(context.Background(), schema.ServiceSignal, "acc", "+1", "msg"); err != nil {
+			if err := c.SendMessage(context.Background(), "example", "acc", "+1", "msg"); err != nil {
 				t.Errorf("SendMessage: %v", err)
 			}
 		}()
@@ -148,7 +148,7 @@ func TestRPCError(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.SendMessage(context.Background(), schema.ServiceSignal, "acc", "+1", "msg")
+	err = c.SendMessage(context.Background(), "example", "acc", "+1", "msg")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

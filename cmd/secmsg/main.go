@@ -81,7 +81,7 @@ func main() {
 		if len(rest) < 3 {
 			fatalf("usage: send <account> <to> <message>")
 		}
-		if err := c.SendMessage(ctx, schema.ServiceSignal, rest[0], rest[1], rest[2]); err != nil {
+		if err := c.SendMessage(ctx, c.Service(), rest[0], rest[1], rest[2]); err != nil {
 			fatalf("send: %v", err)
 		}
 
@@ -89,7 +89,7 @@ func main() {
 		if len(rest) < 3 {
 			fatalf("usage: send-group <account> <groupId> <message>")
 		}
-		if err := c.SendGroupMessage(ctx, schema.ServiceSignal, rest[0], rest[1], rest[2]); err != nil {
+		if err := c.SendGroupMessage(ctx, c.Service(), rest[0], rest[1], rest[2]); err != nil {
 			fatalf("send-group: %v", err)
 		}
 
@@ -97,7 +97,7 @@ func main() {
 		if len(rest) < 1 {
 			fatalf("usage: contacts <account>")
 		}
-		contacts, err := c.Contacts(ctx, schema.ServiceSignal, rest[0])
+		contacts, err := c.Contacts(ctx, c.Service(), rest[0])
 		if err != nil {
 			fatalf("contacts: %v", err)
 		}
@@ -107,7 +107,7 @@ func main() {
 		if len(rest) < 1 {
 			fatalf("usage: groups <account>")
 		}
-		groups, err := c.Groups(ctx, schema.ServiceSignal, rest[0])
+		groups, err := c.Groups(ctx, c.Service(), rest[0])
 		if err != nil {
 			fatalf("groups: %v", err)
 		}
@@ -124,7 +124,7 @@ func main() {
 		if err != nil {
 			fatalf("receipt-read: %v", err)
 		}
-		if err := c.SendReceiptRead(ctx, schema.ServiceSignal, account, to, timestamps); err != nil {
+		if err := c.SendReceiptRead(ctx, c.Service(), account, to, timestamps); err != nil {
 			fatalf("receipt-read: %v", err)
 		}
 
@@ -136,7 +136,7 @@ func main() {
 		if err != nil {
 			fatalf("typing: invalid bool %q: %v", rest[2], err)
 		}
-		if err := c.SendTyping(ctx, schema.ServiceSignal, rest[0], rest[1], typing); err != nil {
+		if err := c.SendTyping(ctx, c.Service(), rest[0], rest[1], typing); err != nil {
 			fatalf("typing: %v", err)
 		}
 
@@ -189,8 +189,8 @@ func main() {
 			printJSON(reply)
 		} else {
 			fmt.Printf("status: %s\n", reply.Status)
-			if reply.ACI != "" {
-				fmt.Printf("aci: %s\n", reply.ACI)
+			if reply.UserID != "" {
+				fmt.Printf("user_id: %s\n", reply.UserID)
 			}
 			if reply.Phone != "" {
 				fmt.Printf("phone: %s\n", reply.Phone)
@@ -447,8 +447,8 @@ func pollLinkStatus(ctx context.Context, c *client.Client, account string, asJSO
 			printJSON(reply)
 		} else {
 			fmt.Printf("status: %s", reply.Status)
-			if reply.ACI != "" {
-				fmt.Printf("  aci: %s", reply.ACI)
+			if reply.UserID != "" {
+				fmt.Printf("  user_id: %s", reply.UserID)
 			}
 			if reply.Phone != "" {
 				fmt.Printf("  phone: %s", reply.Phone)

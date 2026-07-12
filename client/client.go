@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tenebris-tech/secmsg/global"
+	"github.com/tenebris-tech/secmsg/schema"
 )
 
 // DefaultAddr is the default address of the sigd daemon.
@@ -44,6 +45,10 @@ type Client struct {
 
 	timeout time.Duration
 	logger  global.Logger
+
+	// info holds the daemon handshake (service, capabilities, identifier schema)
+	// captured during hello. Set once before readLoop starts; read-only after.
+	info schema.InfoParams
 
 	// mu protects pending, nextID, and readErr — never held across I/O.
 	mu      sync.Mutex
@@ -101,6 +106,21 @@ func Dial(addr string, opts ...Option) (*Client, error) {
 	go c.readLoop()
 
 	return c, nil
+}
+
+// Info returns the daemon handshake captured during Dial: the advertised
+// service identifier, protocol version, capabilities, and account identifier
+// schema. It lets callers adapt to whatever daemon they connected to without
+// hardcoding service-specific values.
+func (c *Client) Info() schema.InfoParams {
+	return c.info
+}
+
+// Service returns the service identifier the connected daemon advertised in its
+// hello handshake. Pass it as the service argument to the Send/Contacts/etc.
+// methods.
+func (c *Client) Service() string {
+	return c.info.Service
 }
 
 // Close shuts down the client, draining all pending requests and subscriptions.

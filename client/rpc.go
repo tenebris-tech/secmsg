@@ -60,8 +60,9 @@ func (c *Client) hello() error {
 	line = strings.TrimRight(line, "\n")
 
 	var greeting struct {
-		JSONRPC string `json:"jsonrpc"`
-		Method  string `json:"method"`
+		JSONRPC string            `json:"jsonrpc"`
+		Method  string            `json:"method"`
+		Params  schema.InfoParams `json:"params"`
 	}
 	if err := json.Unmarshal([]byte(line), &greeting); err != nil {
 		return fmt.Errorf("hello: malformed greeting: %w", err)
@@ -69,6 +70,7 @@ func (c *Client) hello() error {
 	if greeting.Method != schema.MethodHello {
 		return fmt.Errorf("hello: unexpected greeting method %q", greeting.Method)
 	}
+	c.info = greeting.Params
 	return nil
 }
 
@@ -227,7 +229,7 @@ func (c *Client) readLoop() {
 					}
 				}
 			} else if c.logger != nil {
-				c.logger.Warningf("malformed JSON from signal-cli: read %d bytes, parse error: %v", len(line), jsonErr)
+				c.logger.Warningf("malformed JSON from daemon: read %d bytes, parse error: %v", len(line), jsonErr)
 			}
 		}
 

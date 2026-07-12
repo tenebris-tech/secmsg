@@ -10,8 +10,8 @@ const (
 )
 
 // LinkRequestParams are the params the client sends to initiate device linking.
-// Name is the user-provided label for this account (e.g. "myphone"), which sigd
-// uses to form the profile identifier (e.g. "signal-myphone").
+// Name is the user-provided label for this account (e.g. "myphone"), which the
+// daemon uses to form the profile identifier (e.g. "<service>-myphone").
 type LinkRequestParams struct {
 	Name    string `json:"name"`
 	Account string `json:"account"`
@@ -19,11 +19,11 @@ type LinkRequestParams struct {
 
 // LinkReply is returned by both link.request and link.status.
 // Status is always present. URI is set when a QR code is ready to display.
-// ACI and Phone are set on completion. Error is set on failure.
+// UserID and Phone are set on completion. Error is set on failure.
 type LinkReply struct {
 	Status  string `json:"status"`
 	URI     string `json:"uri,omitempty"`
-	ACI     string `json:"aci,omitempty"`
+	UserID  string `json:"aci,omitempty"`
 	Phone   string `json:"phone,omitempty"`
 	Error   string `json:"error,omitempty"`
 	Service string `json:"service,omitempty"`
