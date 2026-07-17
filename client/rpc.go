@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -42,6 +43,19 @@ type rpcError struct {
 
 func (e *rpcError) Error() string {
 	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
+}
+
+// RPCErrorCode reports the JSON-RPC error code carried by err when err (or any
+// error it wraps) originated as a daemon RPC error. ok is false for errors that
+// are not daemon RPC errors (transport failures, context cancellation, …). This
+// lets callers branch on protocol error codes (e.g. schema.ErrCodeStealth)
+// without matching on Error() strings.
+func RPCErrorCode(err error) (code int, ok bool) {
+	var re *rpcError
+	if errors.As(err, &re) {
+		return re.Code, true
+	}
+	return 0, false
 }
 
 // hello reads and validates the server greeting.
@@ -184,6 +198,18 @@ func (c *Client) readLoop() {
 			case ch <- &rpcResponse{Error: connErr}:
 			default:
 			}
+		}
+
+		// Close subscription channels so subscribers blocked on receive observe
+		// the disconnect (channel close) and can reconnect, instead of hanging
+		// until the client is explicitly closed. close() is idempotent, so a later
+		// Close()/Unsubscribe on the same subscription is safe.
+		c.subsMu.Lock()
+		subs := c.subs
+		c.subs = nil
+		c.subsMu.Unlock()
+		for _, s := range subs {
+			s.close()
 		}
 	}()
 

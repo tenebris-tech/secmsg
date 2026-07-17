@@ -209,6 +209,57 @@ func TestSubscribeAndDispatch(t *testing.T) {
 	}
 }
 
+// TestSubscriptionClosesOnDisconnect verifies that when the connection drops
+// (e.g. the daemon restarts), the subscription channel is closed so a consumer
+// blocked on receive unblocks and can reconnect — rather than hanging until the
+// client is explicitly closed.
+func TestSubscriptionClosesOnDisconnect(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		fmt.Fprintf(conn, `{"jsonrpc":"2.0","method":"%s"}`+"\n", schema.MethodHello)
+		scanner := bufio.NewScanner(conn)
+		if scanner.Scan() {
+			var req rpcRequest
+			if err := json.Unmarshal([]byte(scanner.Text()), &req); err == nil {
+				resp, _ := json.Marshal(rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: json.RawMessage(`{"subscribed":true}`)})
+				fmt.Fprintf(conn, "%s\n", resp)
+			}
+		}
+		// Simulate a daemon restart: drop the connection.
+		conn.Close()
+	}()
+
+	c, err := Dial(ln.Addr().String())
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer c.Close()
+
+	ch, cancel, err := c.Subscribe(context.Background())
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer cancel()
+
+	select {
+	case _, ok := <-ch:
+		if ok {
+			t.Fatal("expected subscription channel closed on disconnect, got a value")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("subscription channel did not close after disconnect (reconnect regression)")
+	}
+}
+
 // TestSubscribeCancelNoPanic verifies that cancelling a subscription after the
 // client dispatches a notification does not panic (send on closed channel).
 func TestSubscribeCancelNoPanic(t *testing.T) {
