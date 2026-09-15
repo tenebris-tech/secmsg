@@ -1,7 +1,7 @@
 # secmsg
 
 > [!WARNING]
-> **This project is a work in progress and should not be used in production.**
+> **This is a work in progress - use at your own risk**
 
 A general-purpose secure messaging interface, Go client library, and CLI. It speaks a compact JSON-RPC 2.0 protocol to a messaging daemon, letting any application send and receive messages without carrying any service-specific or cryptographic code.
 
